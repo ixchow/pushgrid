@@ -8,13 +8,18 @@ body {
 	margin:0;
 	padding:0;
 	background:#445;
+	color:#222225;
+}
+a {
+	color:#333335;
 }
 #canvas {
-	position:absolute;
+	display:block;
+	/*position:absolute;
 	top:0;
 	left:0;
 	right:0;
-	bottom:0;
+	bottom:0;*/
 
 	margin:auto;
 	cursor:none;
@@ -35,12 +40,16 @@ body {
 	height:100vh;
 	padding:0;
 	background:#889;
+	display:flex;
+	flex-flow:column;
+	text-align:center;
 }
 </style>
 </head>
 <body>
 <div id="game">
 <canvas id="canvas" width="190" height="115" ></canvas>
+<p>(c) <a href="http://tchow.com">TCHOW</a> 2020, Work In Progress</p>
 </div>
 <script src="game.js"></script>
 </body>
