@@ -58,7 +58,7 @@ const TILES = {
 	//block edges indexed by filled quadrant:
 	//1 2
 	//4 8
-	blockRed:[],
+	blockRed:[], blockGreen:[],
 	platform:{x:0, y:45},
 	background:{x:0, y:36},
 	//player animations:
@@ -76,6 +76,8 @@ const TILES = {
 	playerGreenLTarget:{x:63, y:27, flipX:true},
 	playerPurpleLTarget:{x:63, y:36, flipX:true},
 	playerOrangeLTarget:{x:63, y:45, flipX:true},
+	dedBg:{x:18,y:27},
+	dedFg:{x:18,y:36},
 	/*
 	//wall sides/tops indexed by adjacent walls:
 	//.2.
@@ -111,18 +113,21 @@ const TILES = {
 		0,0,0,0,0,1,1,0,
 		0,0,0,1,1,0,0,0
 	];
-	for (let i = 0; i < 16; ++i) {
-		TILES.blockRed.push(null);
-	}
-	for (let y = 0; y < 4; ++y) {
-		for (let x = 0; x < 4; ++x) {
-			let bits = 0;
-			if (blockMap[2*x  +(2*y  )*8]) bits |= 1;
-			if (blockMap[2*x+1+(2*y  )*8]) bits |= 2;
-			if (blockMap[2*x  +(2*y+1)*8]) bits |= 4;
-			if (blockMap[2*x+1+(2*y+1)*8]) bits |= 8;
-			console.assert(TILES.blockRed[bits] === null, "No duplicate tiles.");
-			TILES.blockRed[bits] = {x:4 + TILE_SIZE*x, y: 139 + TILE_SIZE*y};
+	for (let nxy of [{n:'Red', x:4, y:139}, {n:'Green', x:4, y:94}]) {
+		const block = TILES["block" + nxy.n];
+		for (let i = 0; i < 16; ++i) {
+			block.push(null);
+		}
+		for (let y = 0; y < 4; ++y) {
+			for (let x = 0; x < 4; ++x) {
+				let bits = 0;
+				if (blockMap[2*x  +(2*y  )*8]) bits |= 1;
+				if (blockMap[2*x+1+(2*y  )*8]) bits |= 2;
+				if (blockMap[2*x  +(2*y+1)*8]) bits |= 4;
+				if (blockMap[2*x+1+(2*y+1)*8]) bits |= 8;
+				console.assert(block[bits] === null, "No duplicate tiles.");
+				block[bits] = {x:nxy.x + TILE_SIZE*x, y: nxy.y + TILE_SIZE*y};
+			}
 		}
 	}
 })();
@@ -144,14 +149,12 @@ const MOVES = [
 	],
 	[ SPRITES.arrowR1U1,
 		" *",
-		"o#",
-		".."
+		"o#"
 	],
 	[ SPRITES.arrowR1U2,
 		" *",
 		" #",
-		"o.",
-		".."
+		"o."
 	],
 	[ SPRITES.arrowR1D1,
 		"o ",
@@ -166,8 +169,7 @@ const MOVES = [
 	],
 	[ SPRITES.arrowR2U1,
 		"  *",
-		"o #",
-		"..."
+		"o #"
 	],
 	[ SPRITES.arrowR2D1,
 		"o  ",
@@ -175,7 +177,8 @@ const MOVES = [
 		"..#"
 	],
 	[ SPRITES.arrowSR1,
-		"o>"
+		"o>",
+		"x."
 	]
 ];
 
@@ -212,8 +215,10 @@ const MOVES = [
 		let finish = null;
 		let empty = [];
 		let solid = [];
-		let blocks = [];
-		let shove = 0;
+		let shoveA = null;
+		let shoveB = null;
+		let shoveDelta = 0;
+
 		for (let y = 0; y < move.length; ++y) {
 			for (let x = 0; x < move[y].length; ++x) {
 				const c = move[y][x];
@@ -222,15 +227,16 @@ const MOVES = [
 				} else if (c === ' ') {
 					empty.push({x:x, y:y});
 				} else if (c === '>') {
-					console.assert(finish === null);
-					finish = {x:x, y:y};
-					blocks.push({x:x, y:y});
-					shove = 1;
+					console.assert(shoveA === null && shoveDelta === 0);
+					shoveA = {x:x, y:y};
+					shoveDelta = 1;
 				} else if (c === '<') {
-					console.assert(finish === null);
-					finish = {x:x, y:y};
-					blocks.push({x:x, y:y});
-					shove = -1;
+					console.assert(shoveA === null && shoveDelta === 0);
+					shoveA = {x:x, y:y};
+					shoveDelta = -1;
+				} else if (c === 'x') {
+					console.assert(shoveB === null);
+					shoveB = {x:x, y:y};
 				} else if (c === '#') {
 					solid.push({x:x, y:y});
 				} else if (c === 'o') {
@@ -253,16 +259,24 @@ const MOVES = [
 			c.x -= start.x;
 			c.y -= start.y;
 		}
+		console.assert((shoveA !== null) === (shoveB !== null));
+		if (shoveA) {
+			console.assert(finish === null);
+			finish = shoveA;
+		}
 		MOVES[i] = {
 			dx:finish.x-start.x,
 			dy:finish.y-start.y,
 			empty:empty,
 			solid:solid,
-			blocks:blocks,
-			shove:shove,
 			pattern:move,
 			sprite:sprite
 		};
+		if (shoveA !== null) {
+			MOVES[i].shoveA = {x:shoveA.x-start.x, y:shoveA.y-start.y};
+			MOVES[i].shoveB = {x:shoveB.x-start.x, y:shoveB.y-start.y};
+			MOVES[i].shoveDelta = shoveDelta;
+		}
 	}
 })();
 
@@ -318,12 +332,19 @@ function makeBoard(map,layers,library) {
 		marked.push(0);
 	}
 
+	const blockColors = {
+		g:"Green",
+		G:"Green",
+		r:"Red",
+		R:"Red",
+	};
+
 	for (let y = 0; y < size.y; ++y) {
 		for (let x = 0; x < size.x; ++x) {
 			let c = map[y][x];
 			if (c === ' ') /* nothing */;
 			else if (c === '#') walls[size.x*y+x] = 1;
-			else if (c === 'g' || c === 'G') {
+			else if (c in blockColors) {
 				if (marked[size.x*y+x] !== 0) continue; //already marked
 				const mark = blocks.length + 1;
 
@@ -354,7 +375,7 @@ function makeBoard(map,layers,library) {
 					max.y = Math.max(max.y, pos.y);
 				}
 				let block = {
-					color:"Red",
+					color:blockColors[c],
 					x:min.x, y:min.y,
 					size:{x:max.x+1-min.x, y:max.y+1-min.y},
 					filled:[]
@@ -415,16 +436,20 @@ function cloneBoard(b) {
 }
 
 function undo() {
-	AUDIO.click.oneshot();
+	//AUDIO.click.oneshot();
 	if (board) {
 		if (undoStack.length) {
 			board = undoStack.pop();
+		} else {
+			for (let player of board.players) {
+				delete player.moveIndex;
+			}
 		}
 	}
 }
 
 function reset() {
-	AUDIO.click.oneshot();
+	//AUDIO.click.oneshot();
 	if (isEnd) {
 		setLevel(0);
 	}
@@ -432,11 +457,29 @@ function reset() {
 		if (undoStack.length) {
 			undoStack.push(board);
 			board = cloneBoard(undoStack[0]);
+			for (let player of board.players) {
+				delete player.moveIndex;
+			}
 		}
 	}
 }
 
 const LEVELS = [
+	{title:"also shove test",
+	board:[
+		" rrrrr  ",
+		" g3   2 ",
+		"  rr1###",
+		"  g # G ",
+		" ########"
+	]},
+	{title:"shove test",
+	board:[
+		"        ",
+		" 3gg1  #",
+		" # rr2G ",
+		" ########"
+	]},
 	{title:"test",
 	board:[
 		"  G  3",
@@ -552,7 +595,11 @@ function draw() {
 
 	function drawTile(x,y,tile) {
 		ctx.save();
-		ctx.setTransform(1,0, 0,1, x+board.offset.x, y+board.offset.y);
+		if (tile.flipX) {
+			ctx.setTransform(-1,0, 0,1, x+TILE_SIZE+board.offset.x, y+board.offset.y);
+		} else {
+			ctx.setTransform(1,0, 0,1, x+board.offset.x, y+board.offset.y);
+		}
 		ctx.drawImage(TILES_IMG, tile.x,tile.y, TILE_SIZE,TILE_SIZE, 0, 0,TILE_SIZE,TILE_SIZE);
 		ctx.restore();
 	}
@@ -568,9 +615,13 @@ function draw() {
 		}
 	}
 
-	//draw players:
+	//draw players / bg splats:
 	for (let player of board.players) {
-		drawTile(player.x*TILE_SIZE, player.y*TILE_SIZE, TILES["player" + player.color + "Stand"][0]);
+		if (player.ded) {
+			drawTile(player.x*TILE_SIZE, player.y*TILE_SIZE, TILES.dedBg);
+		} else {
+			drawTile(player.x*TILE_SIZE, player.y*TILE_SIZE, TILES["player" + player.color + "Stand"][0]);
+		}
 	}
 
 	//draw blocks:
@@ -580,6 +631,7 @@ function draw() {
 			if (x < 0 || x >= block.size.x || y < 0 || y >= block.size.y) return false;
 			return block.filled[y*block.size.x+x];
 		}
+		let T = TILES["block" + block.color];
 		for (let by = -1; by < block.size.y; ++by) {
 			for (let bx = -1; bx < block.size.x; ++bx) {
 				let bits = 0;
@@ -587,10 +639,24 @@ function draw() {
 				if (filled(bx+1,by)) bits |= 2;
 				if (filled(bx,by+1)) bits |= 4;
 				if (filled(bx+1,by+1)) bits |= 8;
-				drawTile((block.x+bx)*TILE_SIZE + 4, (block.y+by)*TILE_SIZE + 4, TILES.blockRed[bits]);
+				drawTile((block.x+bx)*TILE_SIZE + 4, (block.y+by)*TILE_SIZE + 4, T[bits]);
 			}
 		}
 	}
+
+	//draw players / fg splats:
+	for (let player of board.players) {
+		if (player.ded && 'splatX' in player) {
+			let x = player.splatX;
+			let y = player.splatY;
+			if ('splatRel' in player) {
+				x += board.blocks[player.splatRel].x;
+				y += board.blocks[player.splatRel].y;
+			}
+			drawTile(x*TILE_SIZE, y*TILE_SIZE, TILES.dedFg);
+		}
+	}
+
 
 	/*//draw border:
 	drawTile(TILE_SIZE*0, TILE_SIZE*0, TILES.border.SW);
@@ -617,8 +683,8 @@ function draw() {
 
 		let move = MOVES[player.moveIndex];
 
-		if (move.shove) {
-			drawTile(TILE_SIZE*player.x, TILE_SIZE*player.y, TILES["player" + player.color + (player.dx > 0 ? "R" : "L") + "Target"]);
+		if (move.shoveA) {
+			//drawTile(TILE_SIZE*player.x, TILE_SIZE*player.y, TILES["player" + player.color + (move.dx > 0 ? "R" : "L") + "Target"]);
 		} else {
 			drawTile(TILE_SIZE*(player.x+move.dx), TILE_SIZE*(player.y+move.dy), TILES["player" + player.color + "Target"]);
 		}
@@ -743,22 +809,312 @@ function getPlayer(tx, ty) {
 	return over;
 }
 
+function tryCollapse(board) {
+	//TODO: fall, cancel, repeat (if any cancels)
+	return board;
+}
+
 //finish moves when all live moves are shoves
 function tryShoves(board) {
+	const blocks = board.blocks;
 
 	//no moves => done!
-	if (board.players.every((p) => !('moveIndex' in p))) return board;
+	if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board);
 
-	//TODO: actual shoves.
-	return null;
+	//record block ids of each location (-1 == no id, 0 .. blocks.length-1 => block, blocks.length => wall)
+	let ids = [];
+	for (let w of board.walls) {
+		ids.push((w ? blocks.length : -1));
+	}
+	for (let blockIndex = 0; blockIndex < blocks.length; ++blockIndex) {
+		const block = blocks[blockIndex];
+		for (let by = 0; by < block.size.y; ++by) {
+			for (let bx = 0; bx < block.size.x; ++bx) {
+				console.assert(ids[(block.y+by)*board.size.x+(block.x+bx)] === -1);
+				ids[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+			}
+		}
+	}
 
-	//TODO:
-	//First, assign motion based on stacking:
-	//For each block, compute 'must' and 'should' move relationships for left and right moves
-	//...
-	//(1) 
-	//(1) every player is assigned motion based on the block they are standing on + their shove
-	//(2) every block is assigned motion based on block it is standing on + nearby blocks
+	const VARIABLES = blocks.length + 1;
+
+	function get(x,y) {
+		if (x < 0 || x >= board.size.x || y < 0 || y >= board.size.y) return VARIABLES-1;
+		return ids[y*board.size.x+x];
+	}
+
+	//gaps[a][b] is the minimum empty space a (space) b:
+	let gaps = [];
+	for (let a = 0; a < VARIABLES; ++a) {
+		gaps.push([]);
+		for (let b = 0; b < VARIABLES; ++b) {
+			gaps[gaps.length-1].push(Infinity);
+		}
+	}
+	for (let y = 0; y < board.size.y; ++y) {
+		let prevX = -1;
+		let prevId = get(prevX,y);
+		for (let x = 0; x <= board.size.x; ++x) {
+			let id = get(x, y);
+			if (id !== -1) {
+				//have [prevId] (gap) [id]
+				const gap = x - prevX - 1;
+				if (prevId !== id) {
+					gaps[prevId][id] = Math.min(gaps[prevId][id], gap);
+				}
+
+				prevX = x;
+				prevId = id;
+			}
+		}
+	}
+
+	//friction[a][b] is the total contact area between a (above) and b (below):
+	let friction = [];
+	for (let a = 0; a < VARIABLES; ++a) {
+		friction.push([]);
+		for (let b = 0; b < VARIABLES; ++b) {
+			friction[friction.length-1].push(0);
+		}
+	}
+	for (let y = -1; y <= board.size.y; ++y) {
+		for (let x = 0; x <= board.size.x; ++x) {
+			let above = get(x, y);
+			let below = get(x, y+1);
+			if (above !== -1 && below !== -1 && above !== below) {
+				friction[above][below] += 1;
+			}
+		}
+	}
+	
+	/*
+	//objective is min f * abs(a-b)
+	// (secondary: minimize motion)
+	let objective = [];
+	for (let a = 0; a < VARIABLES-1; ++a) {
+		for (let b = a+1; b < VARIABLES-1; ++b) {
+			let f = friction[a][b] + friction[b][a];
+			if (f !== 0) objective.push({a:a, b:b, f:f});
+		}
+	}
+	*/
+
+	//blocks want to move like blocks they are above:
+	let above = [];
+	for (let a = 0; a < VARIABLES-1; ++a) {
+		above.push([]);
+		for (let b = 0; b < VARIABLES; ++b) {
+			if (friction[a][b]) {
+				above[above.length-1].push(b);
+			}
+		}
+	}
+
+	let constraints = []; //all: eqn >= 0
+	function addConstraint() {
+		let row = [];
+		for (let i = 0; i < VARIABLES; ++i) {
+			row.push(0);
+		}
+		for (let pair of arguments) {
+			row[pair[0]] += pair[1];
+		}
+		constraints.push(row);
+	}
+	//constraints from gaps:
+	for (let a = 0; a < blocks.length; ++a) {
+		for (let b = 0; b < blocks.length; ++b) {
+			if (gaps[a][b] !== Infinity) {
+				addConstraint([a,-1],[b,1],[VARIABLES-1,gaps[a][b]]);
+			}
+		}
+		if (gaps[a][VARIABLES-1] !== Infinity) {
+			addConstraint([a,-1],[VARIABLES-1,gaps[a][VARIABLES-1]]);
+		}
+		if (gaps[VARIABLES-1][a] !== Infinity) {
+			addConstraint([a,1],[VARIABLES-1,gaps[VARIABLES-1][a]]);
+		}
+	}
+	//constraints from shoves:
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if (!('moveIndex' in player)) continue;
+		const move = MOVES[player.moveIndex];
+		const below = get(player.x+move.shoveB.x, player.y+move.shoveB.y);
+		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
+		console.log("Below: " + below + ", beside: " + beside);
+		if (beside === VARIABLES-1 && below === VARIABLES-1) {
+			console.warn("Trying to push a wall/wall!");
+			return null;
+		}
+		if (beside === VARIABLES-1) {
+			addConstraint([below,-1],[VARIABLES-1,-move.shoveDelta]);
+			addConstraint([below,1],[VARIABLES-1,move.shoveDelta]);
+		} else if (below === VARIABLES-1) {
+			addConstraint([beside,1],[VARIABLES-1,-move.shoveDelta]);
+			addConstraint([beside,-1],[VARIABLES-1,move.shoveDelta]);
+		} else {
+			addConstraint([beside,1],[below,-1],[VARIABLES-1,-move.shoveDelta]);
+			addConstraint([beside,-1],[below,1],[VARIABLES-1,move.shoveDelta]);
+		}
+	}
+
+	/*
+	//DEBUG: print constraints
+	for (let row of constraints) {
+		let str = "";
+		console.assert(row.length === VARIABLES);
+		for (let v = 0; v < VARIABLES; ++v) {
+			if (row[v] !== 0) {
+				if (str !== "") {
+					str += " + ";
+				}
+				str += row[v].toString();
+				if (v === VARIABLES-1) {
+				} else {
+					str += "*b" + v.toString();
+				}
+			}
+		}
+		str += " >= 0"
+		console.log(str);
+	}
+	*/
+	//<--- I WAS HERE
+	// (thinking about ordering strategies that make intuitive sense)
+	//Current idea:
+	// support graph gives friction weights (always prefer friction on something supporting less)
+	// shoves change support relationship (think of shove as marginally lifting shoved block)
+	//
+
+	//rather silly/slow way of solving:
+	let shove = [];
+	for (let i = 0; i < blocks.length; ++i) {
+		shove.push(-3);
+	}
+
+	function nextShove() {
+		shove[0] += 1;
+		for (let i = 0; i + 1 < shove.length; ++i) {
+			if (shove[i] > 3) {
+				shove[i] = -3;
+				shove[i+1] += 1;
+			} else {
+				break;
+			}
+		}
+		return (shove[shove.length-1] <= 3);
+	}
+
+	let lowFric = Infinity;
+	let lowMove = Infinity;
+	let lowShove = null;
+	do {
+		let bad = false;
+		for (let row of constraints) {
+			let acc = row[VARIABLES-1];
+			for (let i = 0; i < shove.length; ++i) {
+				acc += row[i] * shove[i];
+			}
+			if (acc < 0.0) {
+				bad = true;
+				break;
+			}
+		}
+		if (bad) continue;
+
+		let fric = 0;
+		/*
+		for (let abf of objective) {
+			fric += Math.abs(shove[abf.a] - shove[abf.b]) * abf.f;
+		}*/
+		for (let a = 0; a < blocks.length; ++a) {
+			//friction: prefer to move the least among supporting items:
+			let max = -Infinity;
+			let min = Infinity;
+			for (let b of above[a]) {
+				if (b === VARIABLES-1) {
+					max = Math.max(max, 0);
+					min = Math.min(min, 0);
+				} else {
+					max = Math.max(max, shove[b]);
+					min = Math.min(min, shove[b]);
+				}
+			}
+			let target = 0;
+			if (min <= max) {
+				if (min > 0) {
+					target = min;
+				} else if (max < 0) {
+					target = max;
+				}
+			}
+			fric += Math.abs(shove[a] - target);
+		}
+		if (fric > lowFric) continue;
+		let move = 0;
+		for (let i = 0; i < shove.length; ++i) {
+			move += Math.abs(shove[i]);
+		}
+		if (fric < lowFric || move < lowMove) {
+			lowFric = fric;
+			lowMove = move;
+			lowShove = shove.slice();
+		}
+		if (fric == lowFric && move == lowMove) {
+			console.log(fric, move, shove);
+		}
+	} while (nextShove());
+
+	//move doesn't work:
+	if (lowShove === null) return null;
+
+	//move *does* work(!):
+	let after = cloneBoard(board);
+	for (let b = 0; b < after.blocks.length; ++b) {
+		after.blocks[b].x += lowShove[b];
+	}
+	for (let player of after.players) {
+		let on = get(player.x, player.y+1);
+		if (on < after.blocks.length) {
+			player.x += lowShove[on];
+		}
+		delete player.moveIndex;
+	}
+
+	//check if any players got squished:
+	let full = [];
+	for (let w of after.walls) {
+		full.push((w ? after.blocks.length : -1));
+	}
+	for (let blockIndex = 0; blockIndex < after.blocks.length; ++blockIndex) {
+		const block = after.blocks[blockIndex];
+		for (let by = 0; by < block.size.y; ++by) {
+			for (let bx = 0; bx < block.size.x; ++bx) {
+				console.assert(full[(block.y+by)*board.size.x+(block.x+bx)] === -1);
+				full[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+			}
+		}
+	}
+	for (let player of after.players) {
+		if (player.ded) continue;
+		let idx = full[player.y * after.size.x + player.x];
+		if (idx !== -1) {
+			player.ded = true;
+			player.splatX = player.x;
+			player.splatY = player.y + 1;
+			if (player.y + 1 < after.size.y) {
+				let rel = full[(player.y + 1) * after.size.x + player.x];
+				if (rel >= 0 && rel < after.blocks.length) {
+					player.splatRel = rel;
+					player.splatX -= after.blocks[rel].x;
+					player.splatY -= after.blocks[rel].y;
+				}
+			}
+		}
+	}
+
+	return tryCollapse(after);
 }
 
 //returns board after given move, or null if move isn't possible:
@@ -787,11 +1143,13 @@ function tryMoves(board) {
 
 	let after = cloneBoard(board);
 
-	let playerShoves = [];
-
 	//first, resolve all non-shove moves:
 	for (let i = 0; i < board.players.length; ++i) {
 		const player = board.players[i];
+		if (player.ded) {
+			console.assert(!('moveIndex' in player));
+			continue;
+		}
 
 		if (!('moveIndex' in player)) {
 			//no move, just check/block:
@@ -802,14 +1160,11 @@ function tryMoves(board) {
 
 		const move = MOVES[player.moveIndex];
 
-		if (move.shove) {
-			playerShoves.push(move.shove);
+		if (move.shoveA) {
 			//block position for first phase:
 			if (mask[player.y*board.size.x+player.x] !== 0) return null;
 			mask[player.y*board.size.x+player.x] = 4;
 			continue; //will resolve in second phase
-		} else {
-			playerShoves.push(0);
 		}
 
 		//reserve ending position:
@@ -824,7 +1179,7 @@ function tryMoves(board) {
 		//TODO: pull animation out of move(?)
 	}
 
-	return tryShoves(after, playerShoves);
+	return tryShoves(after);
 }
 
 function execute() {
@@ -876,7 +1231,14 @@ function getCloseMove(player, target) {
 
 		if (!template.empty.every((t) => (get(player.x+t.x, player.y+t.y) & 3) === 0)) continue;
 		if (!template.solid.every((t) => (get(player.x+t.x, player.y+t.y) & 3) !== 0)) continue;
-		if (!template.blocks.every((t) => get(player.x+t.x, player.y+t.y) === 2)) continue;
+		if ('shoveA' in template) {
+			const a = get(player.x+template.shoveA.x,player.y+template.shoveA.y);
+			const b = get(player.x+template.shoveB.x,player.y+template.shoveB.y);
+			if ((a & 3) === 0 || (b & 3) === 0) continue; //can't have empty
+			if ((a & 3) === 1 && (b & 3) === 1) continue; //can't have both solid
+		}
+
+//		if (!template.blocks.every((t) => get(player.x+t.x, player.y+t.y) === 2)) continue;
 
 		return {index:i, valid:true};
 	}
@@ -934,9 +1296,10 @@ function setup() {
 				}
 				activePlayer = -1;
 			} else {
-			//if a player is on tile, select the player:
+				//if a player is on tile, select the player:
 				for (let i = 0; i < board.players.length; ++i) {
 					const player = board.players[i];
+					if (player.ded) continue;
 					if (player.x === mouse.tx && player.y === mouse.ty) {
 						activePlayer = i;
 						delete player.moveIndex;
