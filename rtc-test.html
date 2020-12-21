@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+<title>WebRTC data test</title>
+</head>
+<body>
+
+<textarea id="offer">
+</textarea>
+
+<script>
+let pc = new RTCPeerConnection({ iceServers: [{ urls:"stun:stun.stunprotocol.org" }] });
+let dc = pc.createDataChannel('');
+
+function showOffer() {
+	const offer = pc.pendingLocalDescription;
+	document.getElementById("offer").innerText = JSON.stringify(offer.sdp);
+}
+
+async function getOffer() {
+	pc.onicecandidate = (event) => {
+		console.log("ICE candidate: ", event.candidate);
+		if (event.candidate === null) {
+			console.log("ICE gathering finished.");
+			pc.onicecandidate = null;
+			showOffer();
+		}
+	};
+
+	let offer = await pc.createOffer();
+	console.log("Ofter: ", offer);
+	let desc = await pc.setLocalDescription(offer);
+	console.log("Description: ", desc);
+}
+
+getOffer();
+
+
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>pushgrid</title>
+<style>
+body {
+	margin:0;
+	padding:0;
+	background:#445;
+}
+#canvas {
+	position:absolute;
+	top:0;
+	left:0;
+	right:0;
+	bottom:0;
+
+	margin:auto;
+	cursor:none;
+
+	/* from: http://stackoverflow.com/questions/7615009/disable-interpolation-when-scaling-a-canvas */
+	image-rendering: optimizeSpeed;             /* Older versions of FF          */
+	image-rendering: -moz-crisp-edges;          /* FF 6.0+                       */
+	image-rendering: -webkit-optimize-contrast; /* Safari                        */
+	image-rendering: -o-crisp-edges;            /* OS X & Windows Opera (12.02+) */
+	image-rendering: pixelated;                 /* Awesome future-browsers       */
+	-ms-interpolation-mode: nearest-neighbor;   /* IE                            */
+}
+#game {
+	position:absolute;
+	top:0;
+	left:0;
+	width:100vw;
+	height:100vh;
+	padding:0;
+	background:#889;
+}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas id="canvas" width="200" height="160" ></canvas>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
