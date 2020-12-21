@@ -465,6 +465,36 @@ function reset() {
 }
 
 const LEVELS = [
+	{title:"test chains / stacks",
+	board:[
+		"    1   ",
+		"    r   ",
+		"   gg#  ",
+		" 1gr    ",
+		"########"
+	]},
+
+	{title:"you can push blocks",
+	board:[
+		"        ",
+		" 1 r  r ",
+		"########"
+	]},
+	{title:"blocks fall",
+	board:[
+		"        ",
+		" 1 r rr ",
+		"#### ###",
+		"#### ###"
+	]},
+	{title:"some sort of hill",
+	board:[
+		"        ",
+		"     r  ",
+		"   gg#  ",
+		" 1 r  g ",
+		"########"
+	]},
 	{title:"also shove test",
 	board:[
 		" rrrrr  ",
@@ -699,6 +729,43 @@ function draw() {
 		drawSprite(TILE_SIZE*player.x, TILE_SIZE*player.y, SPRITES.activePlayer);
 	}
 
+	/*
+	(function DEBUG_draw_support(){
+		const info = computeSupport(board);
+		function arrow(a,b,col) {
+			function pos(idx) {
+				const block = board.blocks[idx];
+				for (let y = 0; y < block.size.y; ++y) {
+					for (let x = 0; x < block.size.x; ++x) {
+						if (block.filled[y*block.size.x+x]) return {x:TILE_SIZE*(block.x+x+0.5), y:TILE_SIZE*(block.y+y+0.5)};
+					}
+				}
+				console.assert(false); //DEBUG
+			}
+			let pa = pos(a);
+			let pb = pos(b);
+			ctx.beginPath();
+			ctx.moveTo(pa.x, pa.y);
+			ctx.lineTo(pb.x, pb.y);
+			ctx.lineWidth = 1.0;
+			ctx.strokeStyle = col;
+			ctx.stroke();
+		}
+
+		for (let a = 0; a < board.blocks.length; ++a) {
+			for (let b = a+1; b < board.blocks.length; ++b) {
+				if (info.extOn[a][b] !== info.extOn[b][a]) {
+					if (info.extOn[a][b]) arrow(a,b,'#bfb');
+					else arrow(b,a,'#bfb');
+				} else if (info.on[a][b] !== info.on[b][a]) {
+					if (info.on[a][b]) arrow(a,b,'#f88');
+					else arrow(b,a,'#f88');
+				}
+			}
+		}
+	})();
+	*/
+
 	//preview move:
 	if ('tx' in mouse) {
 		if (activePlayer >= 0 && activePlayer < board.players.length) {
@@ -810,16 +877,149 @@ function getPlayer(tx, ty) {
 }
 
 function tryCollapse(board) {
-	//TODO: fall, cancel, repeat (if any cancels)
-	return board;
+	const after = cloneBoard(board);
+
+	const blocks = after.blocks;
+
+	let ids = [];
+	for (let w of board.walls) {
+		ids.push((w ? blocks.length : -1));
+	}
+	for (let blockIndex = 0; blockIndex < blocks.length; ++blockIndex) {
+		const block = blocks[blockIndex];
+		for (let by = 0; by < block.size.y; ++by) {
+			for (let bx = 0; bx < block.size.x; ++bx) {
+				console.assert(ids[(block.y+by)*board.size.x+(block.x+bx)] === -1);
+				ids[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+			}
+		}
+	}
+	function get(x,y) {
+		if (x < 0 || x >= board.size.x || y < 0 || y >= board.size.y) return VARIABLES-1;
+		return ids[y*board.size.x+x];
+	}
+
+	const VARIABLES = blocks.length + 1;
+	//heldBy[a][b] indicates whether a is held up (transitively) by b:
+	let heldBy = [];
+	function addOn(rel, a,b) {
+		console.assert(!rel[a][b]);
+		rel[a][b] = true;
+		for (let k = 0; k < VARIABLES; ++k) {
+			if (rel[k][a] && !rel[k][b]) addOn(rel, k,b);
+			if (rel[b][k] && !rel[a][k]) addOn(rel, a,k);
+		}
+	}
+	for (let a = 0; a < VARIABLES; ++a) {
+		heldBy.push([]);
+		for (let b = 0; b < VARIABLES; ++b) {
+			heldBy[heldBy.length-1].push(false);
+		}
+	}
+	for (let y = -1; y <= board.size.y; ++y) {
+		for (let x = 0; x <= board.size.x; ++x) {
+			let above = get(x, y);
+			let below = get(x, y+1);
+			if (above !== -1 && below !== -1 && above !== below) {
+				if (!heldBy[above][below]) addOn(heldBy, above, below);
+			}
+		}
+	}
+
+	let didFall = [];
+	for (let a = 0; a < blocks.length; ++a) {
+		if (!heldBy[a][VARIABLES-1]) {
+			didFall.push(a);
+			blocks[a].y += 1;
+		}
+	}
+
+	//TODO: animations!
+
+	if (didFall.length) {
+		for (let player of after.players) {
+			if (player.ded) continue;
+			if (didFall.indexOf(get(player.x, player.y+1)) !== -1) {
+				player.y += 1;
+			}
+		}
+		markDead(after);
+		return tryCollapse(after);
+	}
+
+	let matched = [];
+	for (let b = 0; b < after.blocks.length; ++b) {
+		matched.push(false);
+	}
+	for (let y = 0; y < after.size.y; ++y) {
+		for (let x = 0; x < after.size.x; ++x) {
+			let a = get(x,y);
+			let r = get(x+1,y);
+			let d = get(x,y+1);
+			if (a !== r && 0 <= a && a < after.blocks.length && 0 <= r && r < after.blocks.length) {
+				if (after.blocks[a].color === after.blocks[r].color) {
+					matched[a] = true;
+					matched[r] = true;
+				}
+			}
+			if (a !== d && 0 <= a && a < after.blocks.length && 0 <= d && d < after.blocks.length) {
+				if (after.blocks[a].color === after.blocks[d].color) {
+					matched[a] = true;
+					matched[d] = true;
+				}
+			}
+		}
+	}
+
+	let newIndex = [];
+	let newBlocks = [];
+	for (let b = 0; b < after.blocks.length; ++b) {
+		if (matched[b]) {
+			newIndex.push(-1);
+		} else {
+			newIndex.push(newBlocks.length);
+			newBlocks.push(after.blocks[b]);
+		}
+	}
+
+	if (newBlocks.length === after.blocks.length) return after; //bail out if nothing matched
+
+	//remove matched blocks:
+	after.blocks = newBlocks;
+
+	for (let player of after.players) {
+		//re-index relative splats of players!
+		if ('splatRel' in player) {
+			player.splatRel = newIndex[player.splatRel];
+			if (player.splatRel === -1) {
+				delete player.splatRel;
+				delete player.splatX;
+				delete player.splatY;
+			}
+		}
+		//players fall until on a non-removed block:
+		if (!player.ded) {
+			let fall = 0;
+			let on = get(player.x, player.y+1);
+			while (on >= 0 && on < matched.length && matched[on]) {
+				player.y += 1;
+				fall += 1;
+				on = get(player.x, player.y+1);
+			}
+			if (fall > 2) {
+				console.log("TODO: fall splat?");
+			}
+		}
+	}
+
+
+
+	return tryCollapse(after);
 }
 
-//finish moves when all live moves are shoves
-function tryShoves(board) {
+//helper that computes friction/lifted/support relationships:
+function computeSupport(board, do_DEBUG) {
 	const blocks = board.blocks;
-
-	//no moves => done!
-	if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board);
 
 	//record block ids of each location (-1 == no id, 0 .. blocks.length-1 => block, blocks.length => wall)
 	let ids = [];
@@ -886,6 +1086,196 @@ function tryShoves(board) {
 			}
 		}
 	}
+
+	//lifted is everything that is slightly lifted because of pushes:
+	let lifted = [];
+	for (let a = 0; a < VARIABLES; ++a) {
+		lifted.push(false);
+	}
+	function setLifted(b) {
+		console.assert(b !== VARIABLES-1); //should never lift ground
+		if (lifted[b]) return;
+		lifted[b] = true;
+		for (let a = 0; a < VARIABLES-1; ++a) {
+			if (friction[a][b]) {
+				setLifted(b);
+			}
+		}
+	}
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if (!('moveIndex' in player)) continue;
+		const move = MOVES[player.moveIndex];
+		if (!('shoveA' in move)) continue;
+		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
+		if (beside !== VARIABLES-1) {
+			setLifted(beside);
+		}
+	}
+
+	if (do_DEBUG) {
+		console.log(lifted);
+	}
+
+	//on[a][b] says that [a] is resting on [b] (with lifted taken into account):
+	//if on[a][b] and on[b][a] then there is a lifting cycle
+	let on = [];
+	for (let a = 0; a < VARIABLES; ++a) {
+		on.push([]);
+		for (let b = 0; b < VARIABLES; ++b) {
+			on[on.length-1].push(false);
+		}
+	}
+
+	function addOn(rel, a,b) {
+		console.assert(!rel[a][b]);
+		rel[a][b] = true;
+		for (let k = 0; k < VARIABLES; ++k) {
+			if (rel[k][a] && !rel[k][b]) addOn(rel, k,b);
+			if (rel[b][k] && !rel[a][k]) addOn(rel, a,k);
+		}
+	}
+
+	for (let a = 0; a < VARIABLES-1; ++a) {
+		for (let b = 0; b < VARIABLES; ++b) {
+			if (!on[a][b]) {
+				if ((!lifted[a] || lifted[b]) && friction[a][b]) {
+					addOn(on, a,b);
+				}
+			}
+		}
+	}
+
+	//'extended on' augments 'on' with relationships from the player shoves:
+	let extOn = [];
+	for (let row of on) {
+		extOn.push(row.slice());
+	}
+
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if (!('moveIndex' in player)) continue;
+		const move = MOVES[player.moveIndex];
+		if (!('shoveA' in move)) continue;
+		const below = get(player.x+move.shoveB.x, player.y+move.shoveB.y);
+		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
+		if (beside !== VARIABLES-1 && below !== VARIABLES-1) {
+
+			if (!extOn[beside][below]) addOn(extOn, beside, below);
+		}
+	}
+	if (do_DEBUG) {
+		function dump(label, vals) {
+			let str = label + ":";
+			for (let row = 0; row < vals.length; ++row) {
+				str += '\n';
+				for (let col = 0; col < vals[row].length; ++col) {
+					str += (vals[row][col] ? '1' : '.');
+				}
+			}
+			console.log(str);
+		}
+		dump("on", on);
+		dump("extOn", extOn);
+	}
+
+	//build tier assignment:
+	// (sort from most to least important in terms of penalizing slip)
+	let sorted = [];
+	for (let i = 0; i < blocks.length; ++i) {
+		sorted.push(i);
+	}
+	sorted.sort((a,b) => {
+		if (extOn[a][b] !== extOn[b][a]) {
+			return (extOn[a][b] ? 1 : -1);
+		} else if (on[a][b] !== on[b][a]) {
+			return (on[a][b] ? 1 : -1);
+		} else {
+			console.assert(a !== b);
+			return (a < b ? -1 : 1); //<--- TODO, should probably order reversed by height or something
+		}
+	});
+
+	if (do_DEBUG) {
+		console.log("sorted: " + sorted.join(" "));
+	}
+
+	return {
+		ids,
+		gaps,
+		friction,
+		lifted,
+		on,
+		extOn,
+		sorted
+	};
+}
+
+function markDead(board) {
+	//check if any players got squished:
+	let full = [];
+	for (let w of board.walls) {
+		full.push((w ? board.blocks.length : -1));
+	}
+	for (let blockIndex = 0; blockIndex < board.blocks.length; ++blockIndex) {
+		const block = board.blocks[blockIndex];
+		for (let by = 0; by < block.size.y; ++by) {
+			for (let bx = 0; bx < block.size.x; ++bx) {
+				console.assert(full[(block.y+by)*board.size.x+(block.x+bx)] === -1);
+				full[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+			}
+		}
+	}
+	for (let player of board.players) {
+		if (player.ded) continue;
+		let idx = full[player.y * board.size.x + player.x];
+		if (idx !== -1) {
+			player.ded = true;
+			player.splatX = player.x;
+			player.splatY = player.y + 1;
+			if (player.y + 1 < board.size.y) {
+				let rel = full[(player.y + 1) * board.size.x + player.x];
+				if (rel >= 0 && rel < board.blocks.length) {
+					player.splatRel = rel;
+					player.splatX -= board.blocks[rel].x;
+					player.splatY -= board.blocks[rel].y;
+				}
+			}
+		}
+	}
+
+}
+
+//finish moves when all live moves are shoves
+function tryShoves(board) {
+	const blocks = board.blocks;
+
+	//no moves => done!
+	//DEBUG, skip the early-out: if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board);
+
+	const VARIABLES = blocks.length + 1;
+
+	let {
+		ids,
+		gaps,
+		friction,
+		lifted,
+		on,
+		extOn,
+		sorted
+	} = computeSupport(board); //DEBUG flag: , true);
+
+	console.assert(ids.length === board.size.y * board.size.x);
+	console.assert(gaps.length === VARIABLES && gaps[0].length === VARIABLES);
+	console.assert(friction.length === VARIABLES && friction[0].length === VARIABLES);
+	console.assert(lifted.length === VARIABLES);
+	console.assert(on.length === VARIABLES && on[0].length === VARIABLES);
+	console.assert(extOn.length === VARIABLES && extOn[0].length === VARIABLES);
+
+	function get(x,y) {
+		if (x < 0 || x >= board.size.x || y < 0 || y >= board.size.y) return VARIABLES-1;
+		return ids[y*board.size.x+x];
+	}
 	
 	/*
 	//objective is min f * abs(a-b)
@@ -905,10 +1295,23 @@ function tryShoves(board) {
 		above.push([]);
 		for (let b = 0; b < VARIABLES; ++b) {
 			if (friction[a][b]) {
+				if (lifted[a] && (b === VARIABLES-1 || !lifted[b])) continue;
 				above[above.length-1].push(b);
 			}
 		}
 	}
+
+	/*{ //dump above info:
+		let str = "";
+		for (let a = 0; a < above.length; ++a) {
+			str += a + " above";
+			for (let b of above[a]) {
+				str += " " + b;
+			}
+			str += "\n"
+		}
+		console.log(str);
+	}*/
 
 	let constraints = []; //all: eqn >= 0
 	function addConstraint() {
@@ -942,7 +1345,7 @@ function tryShoves(board) {
 		const move = MOVES[player.moveIndex];
 		const below = get(player.x+move.shoveB.x, player.y+move.shoveB.y);
 		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
-		console.log("Below: " + below + ", beside: " + beside);
+		//console.log("Below: " + below + ", beside: " + beside);
 		if (beside === VARIABLES-1 && below === VARIABLES-1) {
 			console.warn("Trying to push a wall/wall!");
 			return null;
@@ -980,12 +1383,6 @@ function tryShoves(board) {
 		console.log(str);
 	}
 	*/
-	//<--- I WAS HERE
-	// (thinking about ordering strategies that make intuitive sense)
-	//Current idea:
-	// support graph gives friction weights (always prefer friction on something supporting less)
-	// shoves change support relationship (think of shove as marginally lifting shoved block)
-	//
 
 	//rather silly/slow way of solving:
 	let shove = [];
@@ -1006,6 +1403,10 @@ function tryShoves(board) {
 		return (shove[shove.length-1] <= 3);
 	}
 
+	let lowSlide = [];
+	for (let i = 0; i < blocks.length; ++i) {
+		lowSlide.push(Infinity);
+	}
 	let lowFric = Infinity;
 	let lowMove = Infinity;
 	let lowShove = null;
@@ -1023,11 +1424,55 @@ function tryShoves(board) {
 		}
 		if (bad) continue;
 
+		//compute slide vs least possible movement among support:
+		let slide = [];
+		for (let i = 0; i < blocks.length; ++i) {
+			let a = sorted[i];
+
+			//friction: prefer to move the least among supporting items:
+			let max = -Infinity;
+			let min = Infinity;
+			for (let b of above[a]) {
+				if (b === VARIABLES-1) {
+					max = Math.max(max, 0);
+					min = Math.min(min, 0);
+				} else {
+					max = Math.max(max, shove[b]);
+					min = Math.min(min, shove[b]);
+				}
+			}
+			if (min <= max) {
+				let target = 0;
+				if (min > 0) {
+					target = min;
+				} else if (max < 0) {
+					target = max;
+				}
+				slide.push(Math.abs(shove[a] - target));
+			} else {
+				//NOTE: this had better be directly lifted.
+				slide.push(0);
+			}
+		}
+
+		let smaller = false;
+		let equal = true;
+		for (let i = 0; i < slide.length; ++i) {
+			if (slide[i] !== lowSlide[i]) {
+				equal = false;
+				smaller = (slide[i] < lowSlide[i]);
+				break;
+			}
+		}
+		if (smaller) {
+			lowSlide = slide;
+			lowShove = shove.slice();
+			console.log(slide.join(" ") + " from " + shove.join(" "));
+		}
+
+
+	/*
 		let fric = 0;
-		/*
-		for (let abf of objective) {
-			fric += Math.abs(shove[abf.a] - shove[abf.b]) * abf.f;
-		}*/
 		for (let a = 0; a < blocks.length; ++a) {
 			//friction: prefer to move the least among supporting items:
 			let max = -Infinity;
@@ -1064,10 +1509,16 @@ function tryShoves(board) {
 		if (fric == lowFric && move == lowMove) {
 			console.log(fric, move, shove);
 		}
+		*/
 	} while (nextShove());
+
 
 	//move doesn't work:
 	if (lowShove === null) return null;
+
+	//DEBUG:
+	console.log("Final: " + lowSlide.join(" ") + " from " + lowShove.join(" "));
+
 
 	//move *does* work(!):
 	let after = cloneBoard(board);
@@ -1075,6 +1526,7 @@ function tryShoves(board) {
 		after.blocks[b].x += lowShove[b];
 	}
 	for (let player of after.players) {
+		if (player.ded) continue;
 		let on = get(player.x, player.y+1);
 		if (on < after.blocks.length) {
 			player.x += lowShove[on];
@@ -1082,37 +1534,7 @@ function tryShoves(board) {
 		delete player.moveIndex;
 	}
 
-	//check if any players got squished:
-	let full = [];
-	for (let w of after.walls) {
-		full.push((w ? after.blocks.length : -1));
-	}
-	for (let blockIndex = 0; blockIndex < after.blocks.length; ++blockIndex) {
-		const block = after.blocks[blockIndex];
-		for (let by = 0; by < block.size.y; ++by) {
-			for (let bx = 0; bx < block.size.x; ++bx) {
-				console.assert(full[(block.y+by)*board.size.x+(block.x+bx)] === -1);
-				full[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
-			}
-		}
-	}
-	for (let player of after.players) {
-		if (player.ded) continue;
-		let idx = full[player.y * after.size.x + player.x];
-		if (idx !== -1) {
-			player.ded = true;
-			player.splatX = player.x;
-			player.splatY = player.y + 1;
-			if (player.y + 1 < after.size.y) {
-				let rel = full[(player.y + 1) * after.size.x + player.x];
-				if (rel >= 0 && rel < after.blocks.length) {
-					player.splatRel = rel;
-					player.splatX -= after.blocks[rel].x;
-					player.splatY -= after.blocks[rel].y;
-				}
-			}
-		}
-	}
+	markDead(after);
 
 	return tryCollapse(after);
 }
