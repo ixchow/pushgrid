@@ -44,10 +44,14 @@ const SPRITES = {
 	arrowR1D2:{x:72, y:72, w:18, h:27, ax:0, ay:0},
 	arrowR2U1:{x:90, y:9, w:27, h:18, ax:0, ay:9},
 	arrowR2D1:{x:90, y:27, w:27, h:18, ax:0, ay:0},
+	step:{x:117, y:26, w:25, h:9, ax:0, ay:0},
+	next:{x:117, y:36, w:25, h:9, ax:0, ay:0},
+	undo:{x:117, y:46, w:25, h:9, ax:0, ay:0},
+	reset:{x:117, y:56, w:25, h:9, ax:0, ay:0},
+	disable:{x:117, y:66, w:25, h:9, ax:0, ay:0},
+	highlight:{x:116, y:75, w:27, h:11, ax:1, ay:1},
+	help:{x:119, y:100, w:155, h:8, ax:78, ay:8},
 /*
-	undo:{x:61, y:261, width:31, height:8},
-	reset:{x:61, y:271, width:36, height:8},
-	next:{x:61, y:251, width:31, height:8},
 	title:{x:1, y:1, width:120, height:90},
 	end:{x:74, y:94, width:120, height:90},
 */
@@ -58,7 +62,7 @@ const TILES = {
 	//block edges indexed by filled quadrant:
 	//1 2
 	//4 8
-	blockRed:[], blockGreen:[],
+	blockRed:[], blockGreen:[], blockBlue:[], blockShine:[],
 	platform:{x:0, y:45},
 	background:{x:0, y:36},
 	//player animations:
@@ -113,7 +117,7 @@ const TILES = {
 		0,0,0,0,0,1,1,0,
 		0,0,0,1,1,0,0,0
 	];
-	for (let nxy of [{n:'Red', x:4, y:139}, {n:'Green', x:4, y:94}]) {
+	for (let nxy of [{n:'Red', x:4, y:139}, {n:'Green', x:4, y:94}, {n:"Blue", x:58, y:103}, {n:"Shine", x:58, y:139}]) {
 		const block = TILES["block" + nxy.n];
 		for (let i = 0; i < 16; ++i) {
 			block.push(null);
@@ -314,6 +318,9 @@ let board = {
 };
 let activePlayer = -1;
 
+//list of {advance:(elapsed) => returns unused time, compute:() => board to draw} functions
+let pendingAnim = [];
+
 let picture = null;
 let isEnd = false;
 
@@ -337,6 +344,8 @@ function makeBoard(map,layers,library) {
 		G:"Green",
 		r:"Red",
 		R:"Red",
+		b:"Blue",
+		B:"Blue",
 	};
 
 	for (let y = 0; y < size.y; ++y) {
@@ -440,10 +449,12 @@ function undo() {
 	if (board) {
 		if (undoStack.length) {
 			board = undoStack.pop();
+			pendingAnim = [];
 		} else {
 			for (let player of board.players) {
 				delete player.moveIndex;
 			}
+			pendingAnim = [];
 		}
 	}
 }
@@ -460,20 +471,12 @@ function reset() {
 			for (let player of board.players) {
 				delete player.moveIndex;
 			}
+			pendingAnim = [];
 		}
 	}
 }
 
 const LEVELS = [
-	{title:"test chains / stacks",
-	board:[
-		"    1   ",
-		"    r   ",
-		"   gg#  ",
-		" 1gr    ",
-		"########"
-	]},
-
 	{title:"you can push blocks",
 	board:[
 		"        ",
@@ -487,12 +490,77 @@ const LEVELS = [
 		"#### ###",
 		"#### ###"
 	]},
+	{title:"corner trick",
+	board:[
+		"         ",
+		"    1    ",
+		"    r    ",
+		"    ##   ",
+		"  r   r  ",
+		"#########"
+	]},
 	{title:"some sort of hill",
 	board:[
 		"        ",
 		"     r  ",
 		"   gg#  ",
 		" 1 r  g ",
+		"########"
+	]},
+	{title:"multiplayer trick",
+	board:[
+		"         ",
+		"         ",
+		"  2 # 1  ",
+		"  r r r  ",
+		"#########"
+	]},
+	{title:"slippery trick",
+	board:[
+		"#          ",
+		"#    ###   ",
+		"##   rrr 1 ",
+		"#    #  ###",
+		"#     g   r",
+		"#######g  #"
+	]},
+	{title:"acceleration trick",
+	board:[
+		"            ",
+		"     rr     ",
+		"  gg  ##    ",
+		" ##         ",
+		"            ",
+		"##1 2     r ",
+		" #####   ## ",
+		"# # ##   ## ",
+		" # # #   ## ",
+		"# # ##g  ## ",
+	]},
+	{title:"you might get squished",
+	board:[
+		"         ",
+		"       R ",
+		" 3gg1  # ",
+		" # rr2G  ",
+		" ####### "
+	]},
+	{title:"stack thinking",
+	board:[
+		"     ",
+		"   b ",
+		"  rg ",
+		"1gbr ",
+		"#####"
+	]},
+
+/*
+	{title:"test chains / stacks",
+	board:[
+		"    1   ",
+		"    r   ",
+		"   gg#  ",
+		" 1gr    ",
 		"########"
 	]},
 	{title:"also shove test",
@@ -534,20 +602,29 @@ const LEVELS = [
 		"# #   ",
 		"######"
 	]},
+*/
 	//{picture:SPRITES.end,isEnd:true
 	//},
 ];
+
+
+let maxSize = {x:1, y:1};
 
 LEVELS.forEach(function(level){
 	if (level.picture) return;
 	console.log(level.title);
 	level.board = makeBoard(level.board);
+	maxSize.x = Math.max(maxSize.x, level.board.size.x);
+	maxSize.y = Math.max(maxSize.y, level.board.size.y);
 });
+
+console.log("Largest level takes up " + maxSize.x * TILE_SIZE + " x " + maxSize.y * TILE_SIZE + " pixels.");
 
 function setBoard(newBoard) {
 	board = cloneBoard(newBoard);
 	activePlayer = -1;
 	undoStack = [];
+	pendingAnim = [];
 }
 
 let maxLevel = 0;
@@ -562,6 +639,7 @@ function setLevel(idx) {
 	if (LEVELS[currentLevel].picture) {
 		picture = LEVELS[currentLevel].picture;
 		board = null;
+		pendingAnim = [];
 		isEnd = (LEVELS[currentLevel].isEnd ? true : false);
 	} else {
 		picture = null;
@@ -579,60 +657,41 @@ if (document.location.search.match(/^\?\d+/)) {
 function next() {
 	if (isWon()) {
 		setLevel(currentLevel + 1);
+		/*
 		if (currentLevel + 1 === LEVELS.length) {
 			AUDIO.winGame.oneshot();
 		} else {
 			AUDIO.click.oneshot();
 		}
+		*/
 	}
 }
 
-function draw() {
-	ctx.setTransform(1,0, 0,1, 0,0);
-	ctx.globalAlpha = 1.0;
-
-	ctx.fillStyle = '#000';
-	ctx.fillRect(0,0, ctx.width,ctx.height);
-
-	if (board) {
-		board.offset = {
-			x:Math.floor((ctx.width - board.size.x*TILE_SIZE)/2),
-			y:Math.floor((ctx.height - 10 - board.size.y*TILE_SIZE + 10)/2)
-		};
-
-		if (mouse.x === mouse.x) {
-			mouse.tx = Math.floor((mouse.x - board.offset.x) / TILE_SIZE);
-			mouse.ty = Math.floor((mouse.y - board.offset.y) / TILE_SIZE);
-		}
-	}
-
-	function drawSprite(x,y,sprite) {
-		ctx.save();
-		if (sprite.flipX) {
-			ctx.setTransform(-1,0, 0,1, sprite.w+x-(sprite.w-sprite.ax)+board.offset.x,y-sprite.ay+board.offset.y);
-		} else {
-			ctx.setTransform(1,0, 0,1, x-sprite.ax+board.offset.x,y-sprite.ay+board.offset.y);
-		}
-		ctx.drawImage(TILES_IMG, sprite.x, sprite.y, sprite.w, sprite.h, 0, 0, sprite.w, sprite.h);
-		ctx.restore();
-	}
-
-	if (picture) {
-		drawSprite(0,Math.floor((ctx.height-picture.height)/2), picture);
+function drawSprite(x,y,sprite) {
+	ctx.save();
+	if (sprite.flipX) {
+		ctx.setTransform(-1,0, 0,1, sprite.w+x-(sprite.w-sprite.ax)+board.offset.x,y-sprite.ay+board.offset.y);
 	} else {
+		ctx.setTransform(1,0, 0,1, x-sprite.ax+board.offset.x,y-sprite.ay+board.offset.y);
+	}
+	ctx.drawImage(TILES_IMG, sprite.x, sprite.y, sprite.w, sprite.h, 0, 0, sprite.w, sprite.h);
+	ctx.restore();
+}
+
+function drawTile(x,y,tile) {
+	ctx.save();
+	if (tile.flipX) {
+		ctx.setTransform(-1,0, 0,1, x+TILE_SIZE+board.offset.x, y+board.offset.y);
+	} else {
+		ctx.setTransform(1,0, 0,1, x+board.offset.x, y+board.offset.y);
+	}
+	ctx.drawImage(TILES_IMG, tile.x,tile.y, TILE_SIZE,TILE_SIZE, 0, 0,TILE_SIZE,TILE_SIZE);
+	ctx.restore();
+}
+
+function drawBoard(board, isAnim) {
 
 	ctx.setTransform(1,0, 0,1, board.offset.x,board.offset.y);
-
-	function drawTile(x,y,tile) {
-		ctx.save();
-		if (tile.flipX) {
-			ctx.setTransform(-1,0, 0,1, x+TILE_SIZE+board.offset.x, y+board.offset.y);
-		} else {
-			ctx.setTransform(1,0, 0,1, x+board.offset.x, y+board.offset.y);
-		}
-		ctx.drawImage(TILES_IMG, tile.x,tile.y, TILE_SIZE,TILE_SIZE, 0, 0,TILE_SIZE,TILE_SIZE);
-		ctx.restore();
-	}
 
 	//draw background / walls:
 	for (let y = 0; y < board.size.y; ++y) {
@@ -662,6 +721,8 @@ function draw() {
 			return block.filled[y*block.size.x+x];
 		}
 		let T = TILES["block" + block.color];
+		let rx = Math.round(block.x * TILE_SIZE);
+		let ry = Math.round(block.y * TILE_SIZE);
 		for (let by = -1; by < block.size.y; ++by) {
 			for (let bx = -1; bx < block.size.x; ++bx) {
 				let bits = 0;
@@ -669,8 +730,23 @@ function draw() {
 				if (filled(bx+1,by)) bits |= 2;
 				if (filled(bx,by+1)) bits |= 4;
 				if (filled(bx+1,by+1)) bits |= 8;
-				drawTile((block.x+bx)*TILE_SIZE + 4, (block.y+by)*TILE_SIZE + 4, T[bits]);
+				drawTile(rx+bx*TILE_SIZE + 4, ry+by*TILE_SIZE + 4, T[bits]);
 			}
+		}
+		if (block.shine) {
+			ctx.globalAlpha = block.shine;
+			let S = TILES.blockShine;
+			for (let by = -1; by < block.size.y; ++by) {
+				for (let bx = -1; bx < block.size.x; ++bx) {
+					let bits = 0;
+					if (filled(bx,by)) bits |= 1;
+					if (filled(bx+1,by)) bits |= 2;
+					if (filled(bx,by+1)) bits |= 4;
+					if (filled(bx+1,by+1)) bits |= 8;
+					drawTile(rx+bx*TILE_SIZE + 4, ry+by*TILE_SIZE + 4, S[bits]);
+				}
+			}
+			ctx.globalAlpha = 1.0;
 		}
 	}
 
@@ -687,7 +763,6 @@ function draw() {
 		}
 	}
 
-
 	/*//draw border:
 	drawTile(TILE_SIZE*0, TILE_SIZE*0, TILES.border.SW);
 	drawTile(TILE_SIZE*0, TILE_SIZE*(board.size.y-1), TILES.border.NW);
@@ -703,30 +778,32 @@ function draw() {
 	}
 	*/
 
-	//draw move arrows:
-	for (let i = 0; i < board.players.length; ++i) {
-		const player = board.players[i];
-		//TODO: tints for mouse and such
+	if (!isAnim) {
+		//draw move arrows:
+		for (let i = 0; i < board.players.length; ++i) {
+			const player = board.players[i];
+			//TODO: tints for mouse and such
 
-		//no move:
-		if (!('moveIndex' in player)) continue;
+			//no move:
+			if (!('moveIndex' in player)) continue;
 
-		let move = MOVES[player.moveIndex];
+			let move = MOVES[player.moveIndex];
 
-		if (move.shoveA) {
-			//drawTile(TILE_SIZE*player.x, TILE_SIZE*player.y, TILES["player" + player.color + (move.dx > 0 ? "R" : "L") + "Target"]);
-		} else {
-			drawTile(TILE_SIZE*(player.x+move.dx), TILE_SIZE*(player.y+move.dy), TILES["player" + player.color + "Target"]);
+			if (move.shoveA) {
+				//drawTile(TILE_SIZE*player.x, TILE_SIZE*player.y, TILES["player" + player.color + (move.dx > 0 ? "R" : "L") + "Target"]);
+			} else {
+				drawTile(TILE_SIZE*(player.x+move.dx), TILE_SIZE*(player.y+move.dy), TILES["player" + player.color + "Target"]);
+			}
+
+			if (move.sprite) {
+				drawSprite(TILE_SIZE*player.x, TILE_SIZE*player.y, move.sprite);
+			}
 		}
 
-		if (move.sprite) {
-			drawSprite(TILE_SIZE*player.x, TILE_SIZE*player.y, move.sprite);
+		if (activePlayer >= 0 && activePlayer < board.players.length) {
+			const player = board.players[activePlayer];
+			drawSprite(TILE_SIZE*player.x, TILE_SIZE*player.y, SPRITES.activePlayer);
 		}
-	}
-
-	if (activePlayer >= 0 && activePlayer < board.players.length) {
-		const player = board.players[activePlayer];
-		drawSprite(TILE_SIZE*player.x, TILE_SIZE*player.y, SPRITES.activePlayer);
 	}
 
 	/*
@@ -767,7 +844,7 @@ function draw() {
 	*/
 
 	//preview move:
-	if ('tx' in mouse) {
+	if (!isAnim && ('tx' in mouse)) {
 		if (activePlayer >= 0 && activePlayer < board.players.length) {
 			const player = board.players[activePlayer];
 			let {index, valid} = getCloseMove(player, {x:mouse.tx, y:mouse.ty});
@@ -777,14 +854,74 @@ function draw() {
 				ctx.globalAlpha = 1.0;
 			}
 		}
-		//let g = canGrowTo(mouse.tx, mouse.ty);
-		//if (g !== null) {
-		//drawTile(mouse.tx*TILE_SIZE, mouse.ty*TILE_SIZE, TILES.playerGreenStand[0]);
-		//}
 	}
+}
+
+function draw() {
+	ctx.setTransform(1,0, 0,1, 0,0);
+	ctx.globalAlpha = 1.0;
+
+	ctx.fillStyle = '#000';
+	ctx.fillRect(0,0, ctx.width,ctx.height);
+
+	if (board) {
+		board.offset = {
+			x:Math.floor((ctx.width - board.size.x*TILE_SIZE)/2),
+			y:Math.floor((ctx.height - board.size.y*TILE_SIZE)/2)
+		};
+
+		if (mouse.x === mouse.x) {
+			mouse.tx = Math.floor((mouse.x - board.offset.x) / TILE_SIZE);
+			mouse.ty = Math.floor((mouse.y - board.offset.y) / TILE_SIZE);
+		}
+	}
+
+	delete SPRITES.reset.at;
+	delete SPRITES.undo.at;
+	delete SPRITES.step.at;
+	delete SPRITES.next.at;
+
+	if (picture) {
+		drawSprite(0,Math.floor((ctx.height-picture.height)/2), picture);
+	} else {
+		if (pendingAnim.length) {
+			const anim = pendingAnim[0].compute();
+			anim.offset = board.offset;
+			drawBoard(anim, true);
+		} else {
+			drawBoard(board, false);
+		}
+		drawSprite(Math.round(0.5 * TILE_SIZE * board.size.x), -2, SPRITES.help);
+
+		SPRITES.reset.at = {x:board.offset.x + Math.round(0.5 * TILE_SIZE * board.size.x - 0.5 * 105), y:board.offset.y + TILE_SIZE * board.size.y + 2};
+		SPRITES.undo.at = {x:SPRITES.reset.at.x + 27, y:SPRITES.reset.at.y};
+		SPRITES.step.at = {x:SPRITES.undo.at.x + 27, y:SPRITES.undo.at.y};
+		SPRITES.next.at = {x:SPRITES.step.at.x + 27, y:SPRITES.step.at.y};
+
+		drawSprite(SPRITES.reset.at.x-board.offset.x, SPRITES.reset.at.y-board.offset.y, SPRITES.reset);
+		if (mouse.overReset) {
+			drawSprite(SPRITES.reset.at.x-board.offset.x, SPRITES.reset.at.y-board.offset.y, SPRITES.highlight);
+		}
+		drawSprite(SPRITES.undo.at.x-board.offset.x, SPRITES.undo.at.y-board.offset.y, SPRITES.undo);
+		if (mouse.overUndo) {
+			drawSprite(SPRITES.undo.at.x-board.offset.x, SPRITES.undo.at.y-board.offset.y, SPRITES.highlight);
+		}
+		drawSprite(SPRITES.step.at.x-board.offset.x, SPRITES.step.at.y-board.offset.y, SPRITES.step);
+		if (mouse.overStep) {
+			drawSprite(SPRITES.step.at.x-board.offset.x, SPRITES.step.at.y-board.offset.y, SPRITES.highlight);
+		}
+		drawSprite(SPRITES.next.at.x-board.offset.x, SPRITES.next.at.y-board.offset.y, SPRITES.next);
+		if (!isWon()) {
+			drawSprite(SPRITES.next.at.x-board.offset.x, SPRITES.next.at.y-board.offset.y, SPRITES.disable);
+			delete SPRITES.next.at;
+		} else if (mouse.overNext) {
+			drawSprite(SPRITES.next.at.x-board.offset.x, SPRITES.next.at.y-board.offset.y, SPRITES.highlight);
+		}
+
 
 	} //end if(picture) else
 
+	/*
 	let resetX = isEnd ? Math.floor((ctx.width - SPRITES.reset.width) / 2) : 1;
 
 	ctx.setTransform(1,0, 0,1, 0,0);
@@ -796,7 +933,9 @@ function draw() {
 	if (mouse.overUndo && board) {
 		ctx.fillRect(ctx.width-1-SPRITES.undo.width,1,SPRITES.undo.width, SPRITES.undo.height);
 	}
+	*/
 
+	/*
 	if (isWon()) {
 		let y = (picture ? 1 : 10);
 		if (mouse.overNext) {
@@ -804,6 +943,7 @@ function draw() {
 		}
 		drawSprite(Math.floor((ctx.width-SPRITES.next.width)/2), y, SPRITES.next);
 	}
+	*/
 
 	/*if (board || isEnd) {
 		drawSprite(resetX,1, SPRITES.reset);
@@ -817,6 +957,7 @@ function draw() {
 
 	//draw mouse:
 	if (mouse.x === mouse.x) {
+		ctx.setTransform(1,0, 0,1, 0,0);
 		ctx.fillStyle = "#fff";
 		ctx.fillRect(mouse.x - 1, mouse.y, 3, 1);
 		ctx.fillRect(mouse.x, mouse.y - 1, 1, 3);
@@ -840,43 +981,80 @@ function draw() {
 
 function update(elapsed) {
 	//NOTE: should probably compute whether drawing is needed to save cpu.
+	let remain = elapsed;
+	while (remain > 0.0 && pendingAnim.length) {
+		remain = pendingAnim[0].advance(remain);
+		if (remain > 0.0) {
+			pendingAnim.shift();
+		}
+	}
 }
 
-function isPerson(tx, ty) {
-	return board.people.some(function(p){
-		return p.x === tx && p.y === ty;
-	});
-}
-
-function isWall(tx, ty) {
-	if (tx < 0 || tx >= board.size.x || ty < 0 || ty >= board.size.y) return true;
-	if (board.walls[tx+ty*board.size.x]) return true;
-	return false;
-}
-function getBlock(tx, ty) {
-	let over = null;
-	for (const block of board.blocks) {
-		if (tx >= block.x && tx < block.x + block.size.x && ty >= block.y && ty < block.y + block.size.y) {
-			if (block.filled[(ty - block.y)*block.size.x + tx-block.x]) {
-				console.assert(over === null);
-				over = block;
+function makeTween(from_, to_, time) {
+	const from = cloneBoard(from_);
+	const to = cloneBoard(to_);
+	console.assert(from.players.length === to.players.length);
+	console.assert(from.blocks.length === to.blocks.length);
+	let current = 0.0;
+	return {
+		advance:(elapsed) => {
+			let next = current + elapsed;
+			if (next >= time) {
+				current = time;
+				return next - time;
+			} else {
+				current = next;
+				return 0.0;
 			}
+		},
+		compute:() => {
+			const amt = current / time;
+			const ret = cloneBoard(from);
+
+			for (let p = 0; p < ret.players.length; ++p) {
+				ret.players[p].x += amt * (to.players[p].x - ret.players[p].x);
+				ret.players[p].y += amt * (to.players[p].y - ret.players[p].y);
+			}
+
+			for (let b = 0; b < ret.blocks.length; ++b) {
+				ret.blocks[b].x += amt * (to.blocks[b].x - ret.blocks[b].x);
+				ret.blocks[b].y += amt * (to.blocks[b].y - ret.blocks[b].y);
+			}
+			return ret;
 		}
-	}
-	return over;
-}
-function getPlayer(tx, ty) {
-	let over = null;
-	for (const player of board.players) {
-		if (player.x === tx && player.y == ty) {
-			console.assert(over === null);
-			over = player;
-		}
-	}
-	return over;
+	};
 }
 
-function tryCollapse(board) {
+function makeShine(from_, matched_, time) {
+	const from = cloneBoard(from_);
+	const matched = matched_.slice();
+	let current = 0.0;
+	return {
+		advance:(elapsed) => {
+			let next = current + elapsed;
+			if (next >= time) {
+				current = time;
+				return next - time;
+			} else {
+				current = next;
+				return 0.0;
+			}
+		},
+		compute:() => {
+			const amt = current / time;
+			const ret = cloneBoard(from);
+
+			for (let b = 0; b < ret.blocks.length; ++b) {
+				if (matched[b]) {
+					ret.blocks[b].shine = amt;
+				}
+			}
+			return ret;
+		}
+	};
+}
+
+function tryCollapse(board, animAcc) {
 	const after = cloneBoard(board);
 
 	const blocks = after.blocks;
@@ -934,8 +1112,6 @@ function tryCollapse(board) {
 		}
 	}
 
-	//TODO: animations!
-
 	if (didFall.length) {
 		for (let player of after.players) {
 			if (player.ded) continue;
@@ -944,7 +1120,10 @@ function tryCollapse(board) {
 			}
 		}
 		markDead(after);
-		return tryCollapse(after);
+		if (animAcc) {
+			animAcc.push(makeTween(board, after, 0.5));
+		}
+		return tryCollapse(after, animAcc);
 	}
 
 	let matched = [];
@@ -984,9 +1163,16 @@ function tryCollapse(board) {
 
 	if (newBlocks.length === after.blocks.length) return after; //bail out if nothing matched
 
+	if (animAcc) {
+		animAcc.push(makeShine(board, matched, 0.25));
+	}
+
 	//remove matched blocks:
 	after.blocks = newBlocks;
 
+	let beforeFall = cloneBoard(after); //for animation
+
+	let playerFall = false;
 	for (let player of after.players) {
 		//re-index relative splats of players!
 		if ('splatRel' in player) {
@@ -1005,6 +1191,7 @@ function tryCollapse(board) {
 				player.y += 1;
 				fall += 1;
 				on = get(player.x, player.y+1);
+				playerFall = true;
 			}
 			if (fall > 2) {
 				console.log("TODO: fall splat?");
@@ -1012,9 +1199,11 @@ function tryCollapse(board) {
 		}
 	}
 
+	if (playerFall && animAcc) {
+		animAcc.push(makeTween(beforeFall, after, 0.5));
+	}
 
-
-	return tryCollapse(after);
+	return tryCollapse(after, animAcc); //any further falling?
 }
 
 //helper that computes friction/lifted/support relationships:
@@ -1185,11 +1374,39 @@ function computeSupport(board, do_DEBUG) {
 	for (let i = 0; i < blocks.length; ++i) {
 		sorted.push(i);
 	}
+	let weight = [];
+	let extWeight = [];
+	for (let a = 0; a < VARIABLES-1; ++a) {
+		let w = 0;
+		let ew = 0;
+		for (let b = 0; b < VARIABLES-1; ++b) {
+			if (extOn[b][a]) ++ew;
+			if (on[b][a]) ++w;
+		}
+		weight.push(w);
+		extWeight.push(ew);
+	}
+
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if (!('moveIndex' in player)) continue;
+		const move = MOVES[player.moveIndex];
+		if (!('shoveA' in move)) continue;
+		const below = get(player.x+move.shoveB.x, player.y+move.shoveB.y);
+		if (below !== VARIABLES-1) {
+			extWeight[below] += 100;
+			for (let b = 0; b < VARIABLES-1; ++b) {
+				if (extOn[below][b]) extWeight[b] += 100;
+			}
+		}
+	}
+
+
 	sorted.sort((a,b) => {
-		if (extOn[a][b] !== extOn[b][a]) {
-			return (extOn[a][b] ? 1 : -1);
-		} else if (on[a][b] !== on[b][a]) {
-			return (on[a][b] ? 1 : -1);
+		if (extWeight[a] !== extWeight[b]) {
+			return (extWeight[a] > extWeight[b] ? -1 : 1);
+		} else if (weight[a] !== weight[b]) {
+			return (weight[a] > weight[b] ? -1 : 1);
 		} else {
 			console.assert(a !== b);
 			return (a < b ? -1 : 1); //<--- TODO, should probably order reversed by height or something
@@ -1247,11 +1464,11 @@ function markDead(board) {
 }
 
 //finish moves when all live moves are shoves
-function tryShoves(board) {
+function tryShoves(board, animAcc) {
 	const blocks = board.blocks;
 
 	//no moves => done!
-	//DEBUG, skip the early-out: if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board);
+	if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board, animAcc);
 
 	const VARIABLES = blocks.length + 1;
 
@@ -1263,7 +1480,7 @@ function tryShoves(board) {
 		on,
 		extOn,
 		sorted
-	} = computeSupport(board); //DEBUG flag: , true);
+	} = computeSupport(board, true);
 
 	console.assert(ids.length === board.size.y * board.size.x);
 	console.assert(gaps.length === VARIABLES && gaps[0].length === VARIABLES);
@@ -1301,7 +1518,7 @@ function tryShoves(board) {
 		}
 	}
 
-	/*{ //dump above info:
+	{ //dump above info:
 		let str = "";
 		for (let a = 0; a < above.length; ++a) {
 			str += a + " above";
@@ -1311,7 +1528,8 @@ function tryShoves(board) {
 			str += "\n"
 		}
 		console.log(str);
-	}*/
+		console.log("sort: " + sorted.join(" "));
+	}
 
 	let constraints = []; //all: eqn >= 0
 	function addConstraint() {
@@ -1535,12 +1753,15 @@ function tryShoves(board) {
 	}
 
 	markDead(after);
+	if (animAcc) {
+		animAcc.push(makeTween(board, after, 0.5)); //TODO: tweak timing
+	}
 
-	return tryCollapse(after);
+	return tryCollapse(after, animAcc);
 }
 
 //returns board after given move, or null if move isn't possible:
-function tryMoves(board) {
+function tryMoves(board, animAcc) {
 	//now all of the non-push moves:
 	//mask & 1 == wall
 	//mask & 2 == block
@@ -1564,6 +1785,7 @@ function tryMoves(board) {
 	}
 
 	let after = cloneBoard(board);
+	let needAnim = false;
 
 	//first, resolve all non-shove moves:
 	for (let i = 0; i < board.players.length; ++i) {
@@ -1589,6 +1811,8 @@ function tryMoves(board) {
 			continue; //will resolve in second phase
 		}
 
+		needAnim = true; //TODO: maybe need to change pose for pushing players
+
 		//reserve ending position:
 		if (mask[(move.dy+player.y)*board.size.x+(move.dx+player.x)] !== 0) return null;
 		mask[(move.dy+player.y)*board.size.x+(move.dx+player.x)] = 4;
@@ -1601,14 +1825,21 @@ function tryMoves(board) {
 		//TODO: pull animation out of move(?)
 	}
 
-	return tryShoves(after);
+	if (needAnim) {
+		animAcc.push(makeTween(board, after, 0.5)); //TODO: tweak timing
+	}
+
+	return tryShoves(after, animAcc);
 }
 
 function execute() {
-	const after = tryMoves(board);
+	const anim = [];
+	const after = tryMoves(board, anim);
 	if (after) {
 		undoStack.push(board);
 		board = after;
+		pendingAnim = anim;
+		console.log("Animations: ", pendingAnim); //DEBUG
 	} else {
 		//TODO: show failure location!
 		console.log("Something went wrong.");
@@ -1617,7 +1848,7 @@ function execute() {
 
 
 function isWon() {
-	return false; // currentLevel + 1 < LEVELS.length && (board === null || board.blob[board.exit.x+board.exit.y*board.size.x]);
+	return currentLevel + 1 < LEVELS.length && (board === null || (board.blocks.length === 0 && pendingAnim.length === 0) );
 }
 
 function getCloseMove(player, target) {
@@ -1686,13 +1917,18 @@ function setup() {
 			mouse.ty = Math.floor((mouse.y - board.offset.y) / TILE_SIZE);
 		}
 
-		function inRect(x,y,w,h) {
-			return (mouse.x >= x && mouse.x < x+w && mouse.y >= y && mouse.y < y+h);
+		function inSprite(s) {
+			if (!('at' in s)) return false;
+			const x = s.at.x - s.ax;
+			const y = s.at.y - s.ay;
+			return (mouse.x >= x && mouse.x < x+s.w && mouse.y >= y && mouse.y < y+s.h);
 		}
 
 		//let resetX = isEnd ? Math.floor((ctx.width - SPRITES.reset.width) / 2) : 1;
-		//mouse.overReset = (board || isEnd ? inRect(resetX,1,SPRITES.reset.width,SPRITES.reset.height) : false);
-		//mouse.overUndo = (board ? inRect(ctx.width-1-SPRITES.undo.width,1,SPRITES.undo.width,SPRITES.undo.height) : false);
+		mouse.overReset = (board ? inSprite(SPRITES.reset) : false);
+		mouse.overUndo = (board ? inSprite(SPRITES.undo) : false);
+		mouse.overStep = (board ? inSprite(SPRITES.step) : false);
+		mouse.overNext = (board ? inSprite(SPRITES.next) : false);
 
 		let y = (picture ? 1 : 10);
 		//mouse.overNext = (isWon() ? inRect(Math.floor((ctx.width-SPRITES.next.width)/2),y,SPRITES.next.width, SPRITES.next.height) : false);
@@ -1703,6 +1939,8 @@ function setup() {
 			reset();
 		} else if (mouse.overUndo) {
 			undo();
+		} else if (mouse.overStep) {
+			execute();
 		} else if (mouse.overNext) {
 			next();
 		} else if (picture) {
@@ -1775,12 +2013,14 @@ function setup() {
 
 	window.addEventListener('keydown', function(evt){
 		if (!evt.repeat) {
-			if (evt.code === 'Space') {
+			if (evt.code === 'KeyS') {
 				execute();
 			} else if (evt.code === 'KeyZ') {
 				undo();
 			} else if (evt.code === 'KeyX') {
 				reset();
+			} else if (evt.code === 'KeyN') {
+				next();
 			}
 		}
 	});
