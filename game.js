@@ -477,6 +477,22 @@ function reset() {
 }
 
 const LEVELS = [
+	{title:"friction test",
+	board:[
+		"             ",
+		"   ggg    2r ",
+		"  rr rr2  gr ",
+		"1gg   gg  rr ",
+		"#############"
+	]},
+	{title:"friction tests",
+	board:[
+		"                        ",
+		"        2g    ggg    2r ",
+		"  1rr   rr   rr rr2  gr ",
+		" 1gg  2ggg 1gg   gg  rr ",
+		"########################"
+	]},
 	{title:"you can push blocks",
 	board:[
 		"        ",
@@ -806,42 +822,32 @@ function drawBoard(board, isAnim) {
 		}
 	}
 
-	/*
 	(function DEBUG_draw_support(){
-		const info = computeSupport(board);
-		function arrow(a,b,col) {
-			function pos(idx) {
-				const block = board.blocks[idx];
-				for (let y = 0; y < block.size.y; ++y) {
-					for (let x = 0; x < block.size.x; ++x) {
-						if (block.filled[y*block.size.x+x]) return {x:TILE_SIZE*(block.x+x+0.5), y:TILE_SIZE*(block.y+y+0.5)};
-					}
-				}
-				console.assert(false); //DEBUG
-			}
-			let pa = pos(a);
-			let pb = pos(b);
-			ctx.beginPath();
-			ctx.moveTo(pa.x, pa.y);
-			ctx.lineTo(pb.x, pb.y);
-			ctx.lineWidth = 1.0;
-			ctx.strokeStyle = col;
-			ctx.stroke();
-		}
+		let {
+			ids,
+			gaps,
+			contacts,
+			forces
+		} = computeSupport(board, true);
 
-		for (let a = 0; a < board.blocks.length; ++a) {
-			for (let b = a+1; b < board.blocks.length; ++b) {
-				if (info.extOn[a][b] !== info.extOn[b][a]) {
-					if (info.extOn[a][b]) arrow(a,b,'#bfb');
-					else arrow(b,a,'#bfb');
-				} else if (info.on[a][b] !== info.on[b][a]) {
-					if (info.on[a][b]) arrow(a,b,'#f88');
-					else arrow(b,a,'#f88');
+		for (let y = board.size.y-1; y >= 1; --y) {
+			for (let x = 0; x < board.size.x; ++x) {
+				let a = ids[y * board.size.x + x];
+				let b = ids[(y+1) * board.size.x + x];
+				if (a !== -1 && b !== -1 && a !== b && a < board.blocks.length) {
+					let force = forces[a];
+					ctx.beginPath();
+					ctx.moveTo(TILE_SIZE*(x+0.0), TILE_SIZE*(y+1));
+					ctx.lineTo(TILE_SIZE*(x+0.5), TILE_SIZE*(y+1+ 0.5*force));
+					ctx.lineTo(TILE_SIZE*(x+1.0), TILE_SIZE*(y+1));
+					ctx.lineWidth = 1.0;
+					ctx.strokeStyle = '#f00';
+					ctx.globalAlpha = 1.0;
+					ctx.stroke();
 				}
 			}
 		}
 	})();
-	*/
 
 	//preview move:
 	if (!isAnim && ('tx' in mouse)) {
@@ -1067,8 +1073,10 @@ function tryCollapse(board, animAcc) {
 		const block = blocks[blockIndex];
 		for (let by = 0; by < block.size.y; ++by) {
 			for (let bx = 0; bx < block.size.x; ++bx) {
-				console.assert(ids[(block.y+by)*board.size.x+(block.x+bx)] === -1);
-				ids[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+				if (block.filled[by * block.size.x + bx]) {
+					console.assert(ids[(block.y+by)*board.size.x+(block.x+bx)] === -1);
+					ids[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+				}
 			}
 		}
 	}
@@ -1206,6 +1214,320 @@ function tryCollapse(board, animAcc) {
 	return tryCollapse(after, animAcc); //any further falling?
 }
 
+
+//Solve a system of linear equations:
+// equations are row = 0
+// rows are {var:coef, var2:coef2, ...} with "1" being the name of constant-1 value.
+
+function solveEquations(equations) {
+	let vars = {};
+	for (let row of equations) {
+		for (let name in row) {
+			if (name != "1") vars[name] = true;
+		}
+	}
+	vars = Object.keys(vars).sort();
+	vars.push("1");
+	//console.log(vars.join(" "));
+
+	let matrix = [];
+	for (let equation of equations) {
+		let row = [];
+		for (let name of vars) {
+			if (name in equation) row.push(equation[name]);
+			else row.push(0);
+		}
+		console.assert(row.length === vars.length);
+		matrix.push(row);
+	}
+
+	function prettyPrint() {
+		let colWidths = [];
+		for (let name of vars) {
+			colWidths.push(name.length);
+		}
+		for (let row of matrix) {
+			for (let c = 0; c < row.length; ++c) {
+				colWidths[c] = Math.max(colWidths[c], row[c].toString().length);
+			}
+		}
+		let str = "";
+		for (let c = 0; c < vars.length; ++c) {
+			str += vars[c].padStart(colWidths[c]+1);
+		}
+		str += "\n"
+		for (let row of matrix) {
+			for (let c = 0; c < row.length; ++c) {
+				str += row[c].toString().padStart(colWidths[c]+1);
+			}
+			str += "\n"
+		}
+		return str;
+	}
+
+	//console.log(prettyPrint());
+
+	let targetRow = 0;
+	for (let targetColumn = 0; targetColumn < vars.length-1; ++targetColumn) {
+
+		//move row with largest leading coef to target row position:
+		let selectedRow = targetRow;
+		for (let r = targetRow + 1; r < matrix.length; ++r) {
+			if (Math.abs(matrix[r][targetColumn]) > Math.abs(matrix[selectedRow][targetColumn])) {
+				selectedRow = r;
+			}
+		}
+		if (matrix[selectedRow][targetColumn] === 0) continue; //empty column
+
+		//move selected row to target row:
+		if (selectedRow != targetRow) {
+			const temp = matrix[selectedRow];
+			matrix[targetRow] = matrix[selectedRow];
+			matrix[selectedRow] = temp;
+		}
+
+		{ //normalize target row:
+			const factor = 1 / matrix[targetRow][targetColumn];
+			matrix[targetRow][targetColumn] = 1.0;
+			for (let c = targetColumn + 1; c < vars.length; ++c) {
+				matrix[targetRow][c] *= factor;
+			}
+		}
+
+		//clear other rows:
+		for (let r = 0; r < matrix.length; ++r) {
+			if (r == targetRow) continue;
+			const factor = matrix[r][targetColumn];
+			if (factor === 0) continue;
+			matrix[r][targetColumn] = 0.0;
+			for (let c = targetColumn + 1; c < vars.length; ++c) {
+				matrix[r][c] -= factor * matrix[targetRow][c];
+			}
+		}
+
+		targetRow += 1;
+	}
+	//console.log(prettyPrint());
+
+	let result = {};
+	for (let r = 0; r < matrix.length; ++r) {
+		for (let c = 0; c < vars.length; ++c) {
+			if (matrix[r][c] !== 0) {
+				if (c + 1 === vars.length) {
+					//1 == 0 situation
+					return null;
+				}
+				console.assert(!(vars[c] in result));
+				console.assert(matrix[r][c] === 1);
+				result[vars[c]] = -matrix[r][vars.length-1];
+				break;
+			}
+		}
+	}
+	for (let name of vars) {
+		if (!(name in result)) result[name] = 0;
+	}
+	return result;
+}
+
+//Incomplete, as of yet:
+//solves linear program with equality constraints on rows subject to all variables >= 0:
+// if no objective is given, minimizes sum of variables
+// constraints rows are objects which map variable names to coefs
+// object maps variable names to terms
+function solveLP(constraints, objective) {
+	if (typeof(objective) == 'undefined') {
+		objective = {};
+		for (let row of constraints) {
+			for (let name in row) {
+				objective[name] = 1;
+			}
+		}
+	}
+	let vars = {};
+	for (let row of constraints) {
+		for (let name in row) {
+			if (name != "1") vars[name] = true;
+		}
+	}
+	/*
+	for (let ri = 0; ri < constraints.length; ++ri) {
+		console.assert(!(("_s" + ri) in vars), "the _s*, _P, and _rhs variable names are reserved");
+	}
+	*/
+	console.assert(!("_P" in vars), "the _s*, _P, and _rhs variable names are reserved");
+	console.assert(!("_rhs" in vars), "the _s*, _P, and _rhs variable names are reserved");
+
+	vars = Object.keys(vars).sort();
+	/*
+	for (let ri = 0; ri < constraints.length; ++ri) {
+		vars.push("_s" + ri);
+	}
+	*/
+	vars.push("_P");
+	console.log(vars.join(" "));
+
+	{ //DEBUG:
+		let str = "Minimizing ";
+		//objective:
+		let first = true;
+		for (let name of Object.keys(objective).sort()) {
+			if (first) first = false;
+			else str += " + ";
+			str += objective[name].toString() + name;
+		}
+		str += "\nSubject to:";
+		for (let row of constraints) {
+			str += "\n  0 = ";
+			let first = true;
+			for (let name of Object.keys(row).sort()) {
+				if (first) first = false;
+				else str += " + ";
+				str += row[name] + name;
+			}
+		}
+		str += "\n (and all variables >= 0)";
+		console.log(str);
+	}
+
+	//As per:
+	//https://people.richland.edu/james/ictcm/2006/simplex.html
+
+	let tableau = [];
+	for (let ri = 0; ri < constraints.length; ++ri) {
+		const row = constraints[ri];
+		let eqn = [];
+		for (let name of vars) {
+			if (name in row) eqn.push(row[name]);
+			//else if (name === "_s" + ri) eqn.push(1);
+			else eqn.push(0);
+		}
+		//right-hand-side column:
+		if ("1" in row) eqn.push(-row["1"]);
+		else eqn.push(0);
+		tableau.push(eqn);
+	}
+	{ //last row is objective row:
+		let eqn = [];
+		for (let name of vars) {
+			if (name in objective) eqn.push(-objective[name]);
+			else if (name === "_P") eqn.push(1);
+			else eqn.push(0);
+		}
+		eqn.push(0); //rhs
+		tableau.push(eqn);
+	}
+
+	function prettyPrint() {
+		let colWidths = [];
+		for (let name of vars) {
+			colWidths.push(name.length);
+		}
+		colWidths.push(1);
+		colWidths.push(1);
+		for (let row of tableau) {
+			for (let c = 0; c < row.length; ++c) {
+				colWidths[c] = Math.max(colWidths[c], row[c].toString().length);
+			}
+		}
+		let str = "";
+		for (let c = 0; c < vars.length; ++c) {
+			str += vars[c].padStart(colWidths[c]+1);
+		}
+		str += "\n"
+		for (let row of tableau) {
+			for (let c = 0; c < row.length; ++c) {
+			str += row[c].toString().padStart(colWidths[c]+1);
+			}
+			str += "\n"
+		}
+		return str;
+	}
+
+	console.log(prettyPrint());
+
+	while (true) {
+		//most important object fn direction:
+		let pivotCol = 0;
+		{
+			const lastRow = tableau[tableau.length-1];
+			for (let c = 0; c < lastRow.length - 1; ++c) {
+				if (lastRow[c] < lastRow[pivotCol]) {
+					pivotCol = c;
+				}
+			}
+			if (lastRow[pivotCol] >= 0) {
+				//SOLVED!
+				break;
+			}
+		}
+
+		//row that will avoid setting rhs negative in other rows:
+		let pivotRatio = Infinity;
+		let pivotRow = null;
+		for (let r = 0; r < tableau.length-1; ++r) {
+			const row = tableau[r];
+			const rhs = row[row.length-1];
+			const coef = row[pivotCol];
+			if (coef === 0) continue;
+			const ratio = rhs / coef;
+			if (ratio < 0) continue;
+
+			if (ratio < pivotRatio) {
+				pivotRow = row;
+				pivotRatio = ratio;
+			}
+		}
+		if (pivotRow === null) {
+			//NO SOLUTION!
+			return null;
+		}
+
+		/*
+		{ //normalize the pivot row:
+			const amt = 1 / pivotRow[pivotCol];
+			for (let c = 0; c < pivotRow.length; ++c) {
+				pivotRow[c] *= amt;
+			}
+		}
+		*/
+
+		//now clear the pivot column:
+		for (let r = 0; r < tableau.length; ++r) {
+			const row = tableau[r];
+			if (row === pivotRow) continue;
+			let multiple = row[pivotCol] / pivotRow[pivotCol];
+			if (multiple === 0) continue;
+			for (let c = 0; c < pivotRow.length; ++c) {
+				row[c] += multiple * pivotRow[c];
+			}
+			row[pivotCol] = 0.0;
+		}
+
+		console.log(prettyPrint());
+	}
+
+	//read tableau to extract variable values:
+	/*
+	let vals = {};
+	for (let r = 0; r < tableau.length-1; ++r) {
+		const row = tableau[r];
+		for (let c = 0; c < row.length-1; ++c) {
+			if (row[c] != 0) {
+				vals[vars[
+				break;
+			}
+		}
+	}
+	*/
+
+	//INCOMPLETE CODE!!
+
+
+
+
+}
+
 //helper that computes friction/lifted/support relationships:
 function computeSupport(board, do_DEBUG) {
 	const blocks = board.blocks;
@@ -1219,8 +1541,10 @@ function computeSupport(board, do_DEBUG) {
 		const block = blocks[blockIndex];
 		for (let by = 0; by < block.size.y; ++by) {
 			for (let bx = 0; bx < block.size.x; ++bx) {
-				console.assert(ids[(block.y+by)*board.size.x+(block.x+bx)] === -1);
-				ids[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+				if (block.filled[by * block.size.x + bx]) {
+					console.assert(ids[(block.y+by)*board.size.x+(block.x+bx)] === -1);
+					ids[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+				}
 			}
 		}
 	}
@@ -1258,24 +1582,9 @@ function computeSupport(board, do_DEBUG) {
 		}
 	}
 
-	//friction[a][b] is the total contact area between a (above) and b (below):
-	let friction = [];
-	for (let a = 0; a < VARIABLES; ++a) {
-		friction.push([]);
-		for (let b = 0; b < VARIABLES; ++b) {
-			friction[friction.length-1].push(0);
-		}
-	}
-	for (let y = -1; y <= board.size.y; ++y) {
-		for (let x = 0; x <= board.size.x; ++x) {
-			let above = get(x, y);
-			let below = get(x, y+1);
-			if (above !== -1 && below !== -1 && above !== below) {
-				friction[above][below] += 1;
-			}
-		}
-	}
-
+	//(TODO: lift would go here, and would influence 'contacts' below)
+	/*
+	
 	//lifted is everything that is slightly lifted because of pushes:
 	let lifted = [];
 	for (let a = 0; a < VARIABLES; ++a) {
@@ -1305,126 +1614,63 @@ function computeSupport(board, do_DEBUG) {
 	if (do_DEBUG) {
 		console.log(lifted);
 	}
+	*/
 
-	//on[a][b] says that [a] is resting on [b] (with lifted taken into account):
-	//if on[a][b] and on[b][a] then there is a lifting cycle
-	let on = [];
+
+	//contacts[a][b] is the contact patch count between a (above) and b (below):
+	let contacts = [];
 	for (let a = 0; a < VARIABLES; ++a) {
-		on.push([]);
+		contacts.push([]);
 		for (let b = 0; b < VARIABLES; ++b) {
-			on[on.length-1].push(false);
+			contacts[contacts.length-1].push(0);
+		}
+	}
+	for (let y = -1; y <= board.size.y; ++y) {
+		for (let x = 0; x <= board.size.x; ++x) {
+			let above = get(x, y);
+			let below = get(x, y+1);
+			if (above !== -1 && below !== -1 && above !== below) {
+				contacts[above][below] += 1;
+			}
 		}
 	}
 
-	function addOn(rel, a,b) {
-		console.assert(!rel[a][b]);
-		rel[a][b] = true;
-		for (let k = 0; k < VARIABLES; ++k) {
-			if (rel[k][a] && !rel[k][b]) addOn(rel, k,b);
-			if (rel[b][k] && !rel[a][k]) addOn(rel, a,k);
-		}
-	}
+	//solve for weight on each contact patch:
+	let forces = [];
 
-	for (let a = 0; a < VARIABLES-1; ++a) {
+	let forceEqns = [];
+	for (let a = 0; a < blocks.length; ++a) {
+		let row = {};
+		let gravity = 0;
+		blocks[a].filled.forEach((f) => {if (f) gravity -= 1;});
+
+		//TODO: add weight from players
+
+		row["1"] = gravity; //gravity pushing down
+		row["f" + a] = 0; //per-contact-patch force pushing up from below (coef will # contact patches)
 		for (let b = 0; b < VARIABLES; ++b) {
-			if (!on[a][b]) {
-				if ((!lifted[a] || lifted[b]) && friction[a][b]) {
-					addOn(on, a,b);
-				}
+			if (contacts[a][b] > 0) {
+				row["f" + a] += contacts[a][b]; //force from below pushing up
+			}
+			if (contacts[b][a] > 0) {
+				row["f" + b] = -contacts[b][a]; //force from above pushing down
 			}
 		}
+		console.assert(row["f" + a] > 0, "blocks should all be supported on something");
+		forceEqns.push(row);
 	}
 
-	//'extended on' augments 'on' with relationships from the player shoves:
-	let extOn = [];
-	for (let row of on) {
-		extOn.push(row.slice());
+	let forceVals = solveEquations(forceEqns);
+	for (let a = 0; a < blocks.length; ++a) {
+		forces.push(forceVals["f" + a]);
 	}
 
-	for (let player of board.players) {
-		if (player.ded) continue;
-		if (!('moveIndex' in player)) continue;
-		const move = MOVES[player.moveIndex];
-		if (!('shoveA' in move)) continue;
-		const below = get(player.x+move.shoveB.x, player.y+move.shoveB.y);
-		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
-		if (beside !== VARIABLES-1 && below !== VARIABLES-1) {
-
-			if (!extOn[beside][below]) addOn(extOn, beside, below);
-		}
-	}
-	if (do_DEBUG) {
-		function dump(label, vals) {
-			let str = label + ":";
-			for (let row = 0; row < vals.length; ++row) {
-				str += '\n';
-				for (let col = 0; col < vals[row].length; ++col) {
-					str += (vals[row][col] ? '1' : '.');
-				}
-			}
-			console.log(str);
-		}
-		dump("on", on);
-		dump("extOn", extOn);
-	}
-
-	//build tier assignment:
-	// (sort from most to least important in terms of penalizing slip)
-	let sorted = [];
-	for (let i = 0; i < blocks.length; ++i) {
-		sorted.push(i);
-	}
-	let weight = [];
-	let extWeight = [];
-	for (let a = 0; a < VARIABLES-1; ++a) {
-		let w = 0;
-		let ew = 0;
-		for (let b = 0; b < VARIABLES-1; ++b) {
-			if (extOn[b][a]) ++ew;
-			if (on[b][a]) ++w;
-		}
-		weight.push(w);
-		extWeight.push(ew);
-	}
-
-	for (let player of board.players) {
-		if (player.ded) continue;
-		if (!('moveIndex' in player)) continue;
-		const move = MOVES[player.moveIndex];
-		if (!('shoveA' in move)) continue;
-		const below = get(player.x+move.shoveB.x, player.y+move.shoveB.y);
-		if (below !== VARIABLES-1) {
-			extWeight[below] += 100;
-			for (let b = 0; b < VARIABLES-1; ++b) {
-				if (extOn[below][b]) extWeight[b] += 100;
-			}
-		}
-	}
-
-
-	sorted.sort((a,b) => {
-		if (extWeight[a] !== extWeight[b]) {
-			return (extWeight[a] > extWeight[b] ? -1 : 1);
-		} else if (weight[a] !== weight[b]) {
-			return (weight[a] > weight[b] ? -1 : 1);
-		} else {
-			console.assert(a !== b);
-			return (a < b ? -1 : 1); //<--- TODO, should probably order reversed by height or something
-		}
-	});
-
-	if (do_DEBUG) {
-		console.log("sorted: " + sorted.join(" "));
-	}
 
 	return {
 		ids,
 		gaps,
-		friction,
-		lifted,
-		on,
-		extOn,
-		sorted
+		contacts,
+		forces
 	};
 }
 
@@ -1438,8 +1684,10 @@ function markDead(board) {
 		const block = board.blocks[blockIndex];
 		for (let by = 0; by < block.size.y; ++by) {
 			for (let bx = 0; bx < block.size.x; ++bx) {
-				console.assert(full[(block.y+by)*board.size.x+(block.x+bx)] === -1);
-				full[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+				if (block.filled[by * block.size.x + bx]) {
+					console.assert(full[(block.y+by)*board.size.x+(block.x+bx)] === -1);
+					full[(block.y+by)*board.size.x+(block.x+bx)] = blockIndex;
+				}
 			}
 		}
 	}
@@ -1470,24 +1718,42 @@ function tryShoves(board, animAcc) {
 	//no moves => done!
 	if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board, animAcc);
 
+	//NOTE: https://people.richland.edu/james/ictcm/2006/simplex.html
+	//...though does model of static friction fit this?
+
+
+	//Principles:
+	// blocks movement choices penalized for static friction breaks.
+
+	//MAYBE:
+	// blocks are lifted by one pixel when pushed (if stacking relationship allows)
+	// ^^ why do we need lifting? to prevent long blocks from being hard to shove off of obstacles.
+	//    could also consider forgoing lifting and letting friction take its toll, I s'pose
+
+	// there is ambiguity in pushes
+	//  (pushing two blocks into the same space while standing on two blocks of the same size)
+	//  could break ambiguity by giving pushers slightly different weights, likely.
+	//  other ambiguity block is to prefer less movement over more movement.
+
+	//Basic thinking on this:
+	// (1) compute support forces between objects (slightly complicated in the case of cycles)
+	// (2) in support order (bottom-to-top) try object movements, accruing penalty based on # of support patches that are not static
+	//   ^^ this is an enumerative process, but so it goes.
+	//      enumeration can prefer movements that are more static.
+
 	const VARIABLES = blocks.length + 1;
 
 	let {
 		ids,
 		gaps,
-		friction,
-		lifted,
-		on,
-		extOn,
-		sorted
+		contacts,
+		forces
 	} = computeSupport(board, true);
 
 	console.assert(ids.length === board.size.y * board.size.x);
 	console.assert(gaps.length === VARIABLES && gaps[0].length === VARIABLES);
-	console.assert(friction.length === VARIABLES && friction[0].length === VARIABLES);
-	console.assert(lifted.length === VARIABLES);
-	console.assert(on.length === VARIABLES && on[0].length === VARIABLES);
-	console.assert(extOn.length === VARIABLES && extOn[0].length === VARIABLES);
+	console.assert(contacts.length === VARIABLES && contacts[0].length === VARIABLES);
+	console.assert(forces.length === board.blocks.length);
 
 	function get(x,y) {
 		if (x < 0 || x >= board.size.x || y < 0 || y >= board.size.y) return VARIABLES-1;
@@ -1495,17 +1761,6 @@ function tryShoves(board, animAcc) {
 	}
 	
 	/*
-	//objective is min f * abs(a-b)
-	// (secondary: minimize motion)
-	let objective = [];
-	for (let a = 0; a < VARIABLES-1; ++a) {
-		for (let b = a+1; b < VARIABLES-1; ++b) {
-			let f = friction[a][b] + friction[b][a];
-			if (f !== 0) objective.push({a:a, b:b, f:f});
-		}
-	}
-	*/
-
 	//blocks want to move like blocks they are above:
 	let above = [];
 	for (let a = 0; a < VARIABLES-1; ++a) {
@@ -1530,6 +1785,7 @@ function tryShoves(board, animAcc) {
 		console.log(str);
 		console.log("sort: " + sorted.join(" "));
 	}
+	*/
 
 	let constraints = []; //all: eqn >= 0
 	function addConstraint() {
@@ -1556,6 +1812,12 @@ function tryShoves(board, animAcc) {
 			addConstraint([a,1],[VARIABLES-1,gaps[VARIABLES-1][a]]);
 		}
 	}
+
+	//TODO: costs from friction
+
+	//shoves *must* happen, and this unifies variables:
+
+
 	//constraints from shoves:
 	for (let player of board.players) {
 		if (player.ded) continue;
@@ -1569,14 +1831,11 @@ function tryShoves(board, animAcc) {
 			return null;
 		}
 		if (beside === VARIABLES-1) {
-			addConstraint([below,-1],[VARIABLES-1,-move.shoveDelta]);
-			addConstraint([below,1],[VARIABLES-1,move.shoveDelta]);
+			setEqual(0, VARIABLES-1,  -1, below,  move.shoveDelta,VARIABLES-1);
 		} else if (below === VARIABLES-1) {
-			addConstraint([beside,1],[VARIABLES-1,-move.shoveDelta]);
-			addConstraint([beside,-1],[VARIABLES-1,move.shoveDelta]);
+			setEqual(1, beside, 0, VARIABLES-1,  move.shoveDelta,VARIABLES-1);
 		} else {
-			addConstraint([beside,1],[below,-1],[VARIABLES-1,-move.shoveDelta]);
-			addConstraint([beside,-1],[below,1],[VARIABLES-1,move.shoveDelta]);
+			setEqual(1, beside,  -1, below,  move.shoveDelta,VARIABLES-1);
 		}
 	}
 
@@ -1773,8 +2032,10 @@ function tryMoves(board, animAcc) {
 	for (let block of board.blocks) {
 		for (let by = 0; by < block.size.y; ++by) {
 			for (let bx = 0; bx < block.size.x; ++bx) {
-				console.assert(mask[(block.y+by)*board.size.x+(block.x+bx)] === 0);
-				mask[(block.y+by)*board.size.x+(block.x+bx)] = 2;
+				if (block.filled[by * block.size.x + bx]) {
+					console.assert(mask[(block.y+by)*board.size.x+(block.x+bx)] === 0);
+					mask[(block.y+by)*board.size.x+(block.x+bx)] = 2;
+				}
 			}
 		}
 	}
@@ -1859,8 +2120,10 @@ function getCloseMove(player, target) {
 	for (let block of board.blocks) {
 		for (let by = 0; by < block.size.y; ++by) {
 			for (let bx = 0; bx < block.size.x; ++bx) {
-				console.assert(mask[(block.y+by)*board.size.x+(block.x+bx)] === 0);
-				mask[(block.y+by)*board.size.x+(block.x+bx)] = 2;
+				if (block.filled[by * block.size.x + bx]) {
+					console.assert(mask[(block.y+by)*board.size.x+(block.x+bx)] === 0);
+					mask[(block.y+by)*board.size.x+(block.x+bx)] = 2;
+				}
 			}
 		}
 	}
