@@ -477,6 +477,13 @@ function reset() {
 }
 
 const LEVELS = [
+	/*{title:"friction test",
+	board:[
+		"        ",
+		"   gg2  ",
+		"  1rrg  ",
+		"########"
+	]},
 	{title:"friction test",
 	board:[
 		"             ",
@@ -492,7 +499,7 @@ const LEVELS = [
 		"  1rr   rr   rr rr2  gr ",
 		" 1gg  2ggg 1gg   gg  rr ",
 		"########################"
-	]},
+	]},*/
 	{title:"you can push blocks",
 	board:[
 		"        ",
@@ -822,13 +829,14 @@ function drawBoard(board, isAnim) {
 		}
 	}
 
-	(function DEBUG_draw_support(){
+	/*(function DEBUG_draw_support(){
+		if (isAnim) return;
 		let {
 			ids,
 			gaps,
 			contacts,
 			forces
-		} = computeSupport(board, true);
+		} = computeSupport(board, false);
 
 		for (let y = board.size.y-1; y >= 1; --y) {
 			for (let x = 0; x < board.size.x; ++x) {
@@ -847,10 +855,10 @@ function drawBoard(board, isAnim) {
 				}
 			}
 		}
-	})();
+	})();*/
 
 	//preview move:
-	if (!isAnim && ('tx' in mouse)) {
+	if (!isAnim && ('tx' in mouse) && mouse.tx >= 0 && mouse.tx < board.size.x && mouse.ty >= 0 && mouse.ty < board.size.y) {
 		if (activePlayer >= 0 && activePlayer < board.players.length) {
 			const player = board.players[activePlayer];
 			let {index, valid} = getCloseMove(player, {x:mouse.tx, y:mouse.ty});
@@ -1219,7 +1227,7 @@ function tryCollapse(board, animAcc) {
 // equations are row = 0
 // rows are {var:coef, var2:coef2, ...} with "1" being the name of constant-1 value.
 
-function solveEquations(equations) {
+function solveEquations(equations, do_DEBUG) {
 	let vars = {};
 	for (let row of equations) {
 		for (let name in row) {
@@ -1265,7 +1273,7 @@ function solveEquations(equations) {
 		return str;
 	}
 
-	//console.log(prettyPrint());
+	if (do_DEBUG) console.log(prettyPrint());
 
 	let targetRow = 0;
 	for (let targetColumn = 0; targetColumn < vars.length-1; ++targetColumn) {
@@ -1281,7 +1289,7 @@ function solveEquations(equations) {
 
 		//move selected row to target row:
 		if (selectedRow != targetRow) {
-			const temp = matrix[selectedRow];
+			const temp = matrix[targetRow];
 			matrix[targetRow] = matrix[selectedRow];
 			matrix[selectedRow] = temp;
 		}
@@ -1307,7 +1315,7 @@ function solveEquations(equations) {
 
 		targetRow += 1;
 	}
-	//console.log(prettyPrint());
+	if (do_DEBUG) console.log(prettyPrint());
 
 	let result = {};
 	for (let r = 0; r < matrix.length; ++r) {
@@ -1564,6 +1572,7 @@ function computeSupport(board, do_DEBUG) {
 			gaps[gaps.length-1].push(Infinity);
 		}
 	}
+
 	for (let y = 0; y < board.size.y; ++y) {
 		let prevX = -1;
 		let prevId = get(prevX,y);
@@ -1582,39 +1591,44 @@ function computeSupport(board, do_DEBUG) {
 		}
 	}
 
-	//(TODO: lift would go here, and would influence 'contacts' below)
-	/*
-	
-	//lifted is everything that is slightly lifted because of pushes:
-	let lifted = [];
-	for (let a = 0; a < VARIABLES; ++a) {
-		lifted.push(false);
+	if (do_DEBUG) { //DEBUG: print gaps
+		let colWidths = [];
+		for (let b = 0; b < VARIABLES; ++b) {
+			colWidths.push(gaps[0][b].toString().length);
+		}
+		for (let a = 1; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				colWidths[b] = Math.max(colWidths[b], gaps[a][b].toString().length);
+			}
+		}
+		let str = "";
+		for (let a = 0; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				str += gaps[a][b].toString().padStart(colWidths[b]+1);
+			}
+			str += "\n"
+		}
+		console.log("Gaps (before):\n" + str);
 	}
-	function setLifted(b) {
-		console.assert(b !== VARIABLES-1); //should never lift ground
-		if (lifted[b]) return;
-		lifted[b] = true;
-		for (let a = 0; a < VARIABLES-1; ++a) {
-			if (friction[a][b]) {
-				setLifted(b);
+
+	//fill in gaps transitively:
+	for (let k = 0; k < VARIABLES; ++k) {
+		for (let a = 0; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				for (let c = 0; c < VARIABLES-1; ++c) { //can't fill in gaps through wall
+					gaps[a][b] = Math.min(gaps[a][b], gaps[a][c] + gaps[c][b]);
+				}
 			}
 		}
 	}
-	for (let player of board.players) {
-		if (player.ded) continue;
-		if (!('moveIndex' in player)) continue;
-		const move = MOVES[player.moveIndex];
-		if (!('shoveA' in move)) continue;
-		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
-		if (beside !== VARIABLES-1) {
-			setLifted(beside);
+	//PARANOIA:
+	for (let a = 0; a < VARIABLES; ++a) {
+		for (let b = 0; b < VARIABLES; ++b) {
+			for (let c = 0; c < VARIABLES-1; ++c) {
+				console.assert(gaps[a][b] <= gaps[a][c] + gaps[c][b]);
+			}
 		}
 	}
-
-	if (do_DEBUG) {
-		console.log(lifted);
-	}
-	*/
 
 
 	//contacts[a][b] is the contact patch count between a (above) and b (below):
@@ -1635,14 +1649,120 @@ function computeSupport(board, do_DEBUG) {
 		}
 	}
 
+	if (do_DEBUG) { //DEBUG: print gaps
+		let colWidths = [];
+		for (let b = 0; b < VARIABLES; ++b) {
+			colWidths.push(contacts[0][b].toString().length);
+		}
+		for (let a = 1; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				colWidths[b] = Math.max(colWidths[b], contacts[a][b].toString().length);
+			}
+		}
+		let str = "";
+		for (let a = 0; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				str += contacts[a][b].toString().padStart(colWidths[b]+1);
+			}
+			str += "\n"
+		}
+		console.log("Contacts (before lifted):\n" + str);
+	}
+
+
+	//lifted is everything that is slightly lifted because of pushes:
+	let lifted = [];
+	for (let a = 0; a < VARIABLES; ++a) {
+		lifted.push(false);
+	}
+	function setLifted(b) {
+		console.assert(b !== VARIABLES-1); //should never lift ground
+		if (lifted[b]) return;
+		lifted[b] = true;
+		for (let a = 0; a < VARIABLES-1; ++a) {
+			if (contacts[a][b]) {
+				setLifted(a);
+			}
+		}
+	}
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if (!('moveIndex' in player)) continue;
+		const move = MOVES[player.moveIndex];
+		if (!('shoveA' in move)) continue;
+		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
+		if (beside !== VARIABLES-1) {
+			setLifted(beside);
+		}
+	}
+
+	if (do_DEBUG) {
+		console.log(lifted);
+	}
+
+	//edit contacts to account for lifted:
+	for (let a = 0; a < VARIABLES; ++a) {
+		for (let b = 0; b < VARIABLES; ++b) {
+			if (lifted[a] && !lifted[b]) {
+				contacts[a][b] = 0;
+			}
+		}
+	}
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if (!('moveIndex' in player)) continue;
+		const move = MOVES[player.moveIndex];
+		if (!('shoveA' in move)) continue;
+		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
+		const below = get(player.x, player.y+1);
+		if (beside !== VARIABLES-1) {
+			contacts[beside][below] += 1;
+		}
+	}
+
+	if (do_DEBUG) { //DEBUG: print gaps
+		let colWidths = [];
+		for (let b = 0; b < VARIABLES; ++b) {
+			colWidths.push(contacts[0][b].toString().length);
+		}
+		for (let a = 1; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				colWidths[b] = Math.max(colWidths[b], contacts[a][b].toString().length);
+			}
+		}
+		let str = "";
+		for (let a = 0; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				str += contacts[a][b].toString().padStart(colWidths[b]+1);
+			}
+			str += "\n"
+		}
+		console.log("Contacts (after lifted):\n" + str);
+	}
+
+
 	//solve for weight on each contact patch:
-	let forces = [];
+	let playerWeight = [];
+
+	for (let a = 0; a < blocks.length; ++a) {
+		playerWeight.push(0);
+	}
+
+	for (let player of board.players) {
+		if (player.ded) continue;
+		const below = get(player.x, player.y+1);
+		if (below !== VARIABLES-1) {
+			playerWeight[below] += 1;
+		}
+	}
 
 	let forceEqns = [];
 	for (let a = 0; a < blocks.length; ++a) {
 		let row = {};
 		let gravity = 0;
 		blocks[a].filled.forEach((f) => {if (f) gravity -= 1;});
+
+		gravity -= playerWeight[a];
 
 		//TODO: add weight from players
 
@@ -1652,19 +1772,19 @@ function computeSupport(board, do_DEBUG) {
 			if (contacts[a][b] > 0) {
 				row["f" + a] += contacts[a][b]; //force from below pushing up
 			}
-			if (contacts[b][a] > 0) {
-				row["f" + b] = -contacts[b][a]; //force from above pushing down
+			if (contacts[b][a] > 0 && b !== VARIABLES-1) {
+				row["f" + b] = -contacts[b][a]; //force from above pushing down (not exerted by floor)
 			}
 		}
 		console.assert(row["f" + a] > 0, "blocks should all be supported on something");
 		forceEqns.push(row);
 	}
 
-	let forceVals = solveEquations(forceEqns);
+	let forces = [];
+	let forceVals = solveEquations(forceEqns, do_DEBUG);
 	for (let a = 0; a < blocks.length; ++a) {
 		forces.push(forceVals["f" + a]);
 	}
-
 
 	return {
 		ids,
@@ -1716,7 +1836,8 @@ function tryShoves(board, animAcc) {
 	const blocks = board.blocks;
 
 	//no moves => done!
-	if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board, animAcc);
+	//DEBUG: avoid early-out
+	//if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board, animAcc);
 
 	//NOTE: https://people.richland.edu/james/ictcm/2006/simplex.html
 	//...though does model of static friction fit this?
@@ -1759,66 +1880,16 @@ function tryShoves(board, animAcc) {
 		if (x < 0 || x >= board.size.x || y < 0 || y >= board.size.y) return VARIABLES-1;
 		return ids[y*board.size.x+x];
 	}
-	
-	/*
-	//blocks want to move like blocks they are above:
-	let above = [];
-	for (let a = 0; a < VARIABLES-1; ++a) {
-		above.push([]);
-		for (let b = 0; b < VARIABLES; ++b) {
-			if (friction[a][b]) {
-				if (lifted[a] && (b === VARIABLES-1 || !lifted[b])) continue;
-				above[above.length-1].push(b);
-			}
-		}
-	}
-
-	{ //dump above info:
-		let str = "";
-		for (let a = 0; a < above.length; ++a) {
-			str += a + " above";
-			for (let b of above[a]) {
-				str += " " + b;
-			}
-			str += "\n"
-		}
-		console.log(str);
-		console.log("sort: " + sorted.join(" "));
-	}
-	*/
-
-	let constraints = []; //all: eqn >= 0
-	function addConstraint() {
-		let row = [];
-		for (let i = 0; i < VARIABLES; ++i) {
-			row.push(0);
-		}
-		for (let pair of arguments) {
-			row[pair[0]] += pair[1];
-		}
-		constraints.push(row);
-	}
-	//constraints from gaps:
-	for (let a = 0; a < blocks.length; ++a) {
-		for (let b = 0; b < blocks.length; ++b) {
-			if (gaps[a][b] !== Infinity) {
-				addConstraint([a,-1],[b,1],[VARIABLES-1,gaps[a][b]]);
-			}
-		}
-		if (gaps[a][VARIABLES-1] !== Infinity) {
-			addConstraint([a,-1],[VARIABLES-1,gaps[a][VARIABLES-1]]);
-		}
-		if (gaps[VARIABLES-1][a] !== Infinity) {
-			addConstraint([a,1],[VARIABLES-1,gaps[VARIABLES-1][a]]);
-		}
-	}
-
-	//TODO: costs from friction
-
-	//shoves *must* happen, and this unifies variables:
-
 
 	//constraints from shoves:
+	let deltas = []; //shove[a] + deltas[a][b] = shove[b] (unless NaN)
+	for (let a = 0; a < VARIABLES; ++a) {
+		deltas.push([]);
+		for (let b = 0; b < VARIABLES; ++b) {
+			deltas[deltas.length-1].push((a === b ? 0 : NaN));
+		}
+	}
+
 	for (let player of board.players) {
 		if (player.ded) continue;
 		if (!('moveIndex' in player)) continue;
@@ -1830,13 +1901,94 @@ function tryShoves(board, animAcc) {
 			console.warn("Trying to push a wall/wall!");
 			return null;
 		}
-		if (beside === VARIABLES-1) {
-			setEqual(0, VARIABLES-1,  -1, below,  move.shoveDelta,VARIABLES-1);
-		} else if (below === VARIABLES-1) {
-			setEqual(1, beside, 0, VARIABLES-1,  move.shoveDelta,VARIABLES-1);
+		if (deltas[below][beside] === deltas[below][beside]) {
+			if (deltas[below][beside] !== move.shoveDelta) {
+				//conflicting shoves
+				return null;
+			}
 		} else {
-			setEqual(1, beside,  -1, below,  move.shoveDelta,VARIABLES-1);
+			deltas[below][beside] = move.shoveDelta;
 		}
+
+		if (deltas[beside][below] === deltas[beside][below]) {
+			if (deltas[beside][below] !== -move.shoveDelta) {
+				//conflicting shoves
+				return null;
+			}
+		} else {
+			deltas[beside][below] = -move.shoveDelta;
+		}
+	}
+
+	//fill in deltas transitively:
+	for (let k = 0; k < VARIABLES; ++k) {
+		for (let a = 0; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				for (let c = 0; c < VARIABLES; ++c) {
+					let sum = deltas[a][c] + deltas[c][b];
+					if (sum === sum) {
+						if (deltas[a][b] === deltas[a][b]) {
+							if (deltas[a][b] !== sum) {
+								return null;
+							}
+						} else {
+							deltas[a][b] = sum;
+						}
+					}
+				}
+			}
+		}
+	}
+	//PARANOIA:
+	for (let a = 0; a < VARIABLES; ++a) {
+		for (let b = 0; b < VARIABLES; ++b) {
+			for (let c = 0; c < VARIABLES; ++c) {
+				let sum = deltas[a][c] + deltas[c][b];
+				if (sum === sum) {
+					console.assert(sum === deltas[a][b]);
+				}
+			}
+		}
+	}
+
+	{ //DEBUG: print deltas
+		let colWidths = [];
+		for (let b = 0; b < VARIABLES; ++b) {
+			colWidths.push(deltas[0][b].toString().length);
+		}
+		for (let a = 1; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				colWidths[b] = Math.max(colWidths[b], deltas[a][b].toString().length);
+			}
+		}
+		let str = "";
+		for (let a = 0; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				str += deltas[a][b].toString().padStart(colWidths[b]+1);
+			}
+			str += "\n"
+		}
+		console.log("Deltas:\n" + str);
+	}
+
+	{ //DEBUG: print gaps
+		let colWidths = [];
+		for (let b = 0; b < VARIABLES; ++b) {
+			colWidths.push(gaps[0][b].toString().length);
+		}
+		for (let a = 1; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				colWidths[b] = Math.max(colWidths[b], gaps[a][b].toString().length);
+			}
+		}
+		let str = "";
+		for (let a = 0; a < VARIABLES; ++a) {
+			for (let b = 0; b < VARIABLES; ++b) {
+				str += gaps[a][b].toString().padStart(colWidths[b]+1);
+			}
+			str += "\n"
+		}
+		console.log("Gaps:\n" + str);
 	}
 
 	/*
@@ -1861,152 +2013,199 @@ function tryShoves(board, animAcc) {
 	}
 	*/
 
-	//rather silly/slow way of solving:
-	let shove = [];
+	let order = [];
 	for (let i = 0; i < blocks.length; ++i) {
-		shove.push(-3);
+		order.push(i);
 	}
 
-	function nextShove() {
-		shove[0] += 1;
-		for (let i = 0; i + 1 < shove.length; ++i) {
-			if (shove[i] > 3) {
-				shove[i] = -3;
-				shove[i+1] += 1;
-			} else {
-				break;
-			}
-		}
-		return (shove[shove.length-1] <= 3);
-	}
+	let bestShove = null;
+	let bestCost = Infinity;
 
-	let lowSlide = [];
-	for (let i = 0; i < blocks.length; ++i) {
-		lowSlide.push(Infinity);
-	}
-	let lowFric = Infinity;
-	let lowMove = Infinity;
-	let lowShove = null;
-	do {
-		let bad = false;
-		for (let row of constraints) {
-			let acc = row[VARIABLES-1];
-			for (let i = 0; i < shove.length; ++i) {
-				acc += row[i] * shove[i];
-			}
-			if (acc < 0.0) {
-				bad = true;
-				break;
-			}
-		}
-		if (bad) continue;
+	{ //do a search:
 
-		//compute slide vs least possible movement among support:
-		let slide = [];
+		let shove = [];
 		for (let i = 0; i < blocks.length; ++i) {
-			let a = sorted[i];
+			shove.push(NaN);
+		}
 
-			//friction: prefer to move the least among supporting items:
-			let max = -Infinity;
-			let min = Infinity;
-			for (let b of above[a]) {
-				if (b === VARIABLES-1) {
-					max = Math.max(max, 0);
-					min = Math.min(min, 0);
-				} else {
-					max = Math.max(max, shove[b]);
-					min = Math.min(min, shove[b]);
+		let searchSteps = 0;
+
+		function localCost(blockIndex) {
+			//charge for static friction broken:
+			let ret = 0;
+			for (let other = 0; other < VARIABLES-1; ++other) {
+				if (shove[other] === shove[other] && shove[other] !== shove[blockIndex]) {
+					ret += contacts[blockIndex][other] * forces[blockIndex];
+					ret += contacts[other][blockIndex] * forces[other];
 				}
 			}
-			if (min <= max) {
-				let target = 0;
-				if (min > 0) {
-					target = min;
-				} else if (max < 0) {
-					target = max;
+			if (shove[blockIndex] !== 0) {
+				ret += contacts[blockIndex][VARIABLES-1] * forces[blockIndex];
+			}
+			return ret;
+
+			//total force required to overcome static friction
+			// awkward because can't actually charge until *all* adjacent blocks have movement.
+			/*
+			let totalForce = 0;
+			for (let other = 0; other < VARIABLES-1; ++other) {
+				if (shove[other] === shove[other]) {
+					//&& shove[other] !== shove[blockIndex]) {
+					if (shove[blockIndex] > shove[other]) {
+						totalForce += contacts[blockIndex][other] * forces[blockIndex];
+						totalForce += contacts[other][blockIndex] * forces[other];
+					} else if (shove[blockIndex] < shove[other]) {
+						totalForce -= contacts[blockIndex][other] * forces[blockIndex];
+						totalForce -= contacts[other][blockIndex] * forces[other];
+					}
 				}
-				slide.push(Math.abs(shove[a] - target));
+			}
+			if (shove[blockIndex] > 0) {
+				totalForce += contacts[blockIndex][VARIABLES-1] * forces[blockIndex];
 			} else {
-				//NOTE: this had better be directly lifted.
-				slide.push(0);
+				totalForce -= contacts[blockIndex][VARIABLES-1] * forces[blockIndex];
 			}
+			return ret;*/
 		}
 
-		let smaller = false;
-		let equal = true;
-		for (let i = 0; i < slide.length; ++i) {
-			if (slide[i] !== lowSlide[i]) {
-				equal = false;
-				smaller = (slide[i] < lowSlide[i]);
-				break;
-			}
-		}
-		if (smaller) {
-			lowSlide = slide;
-			lowShove = shove.slice();
-			console.log(slide.join(" ") + " from " + shove.join(" "));
-		}
+		function getLimits(blockIndex) {
+			let min = -gaps[VARIABLES-1][blockIndex];
+			let max = gaps[blockIndex][VARIABLES-1];
 
-
-	/*
-		let fric = 0;
-		for (let a = 0; a < blocks.length; ++a) {
-			//friction: prefer to move the least among supporting items:
-			let max = -Infinity;
-			let min = Infinity;
-			for (let b of above[a]) {
-				if (b === VARIABLES-1) {
-					max = Math.max(max, 0);
-					min = Math.min(min, 0);
-				} else {
-					max = Math.max(max, shove[b]);
-					min = Math.min(min, shove[b]);
+			for (let other = 0; other < VARIABLES-1; ++other) {
+				if (other === blockIndex) continue;
+				if (shove[other] === shove[other]) {
+					//shove[other] - shove[blockIndex] <= gaps[other][blockIndex]:
+					min = Math.max(min, shove[other] - gaps[other][blockIndex]);
+					//shove[blockIndex] - shove[other] <= gaps[blockIndex][other]:
+					max = Math.min(max, gaps[blockIndex][other] + shove[other]);
 				}
 			}
-			let target = 0;
-			if (min <= max) {
-				if (min > 0) {
-					target = min;
-				} else if (max < 0) {
-					target = max;
+			return {min, max};
+		}
+
+
+		let initialCost = 0;
+
+		for (let i = 0; i < blocks.length; ++i) {
+			if (deltas[VARIABLES-1][i] === deltas[VARIABLES-1][i]) {
+				shove[i] = deltas[VARIABLES-1][i];
+				initialCost += localCost(i);
+				const {min, max} = getLimits(i);
+				if (shove[i] < min || shove[i] > max) {
+					//immediate limit fail
+					return null;
 				}
 			}
-			fric += Math.abs(shove[a] - target);
 		}
-		if (fric > lowFric) continue;
-		let move = 0;
-		for (let i = 0; i < shove.length; ++i) {
-			move += Math.abs(shove[i]);
-		}
-		if (fric < lowFric || move < lowMove) {
-			lowFric = fric;
-			lowMove = move;
-			lowShove = shove.slice();
-		}
-		if (fric == lowFric && move == lowMove) {
-			console.log(fric, move, shove);
-		}
-		*/
-	} while (nextShove());
+
+		function shoveSearch(cost, next) {
+			if (cost >= bestCost) return;
+
+			if (next >= order.length) {
+				console.assert(cost < bestCost);
+				bestCost = cost;
+				bestShove = shove.slice();
+				console.log("After " + searchSteps + " steps, have cost " + bestCost + " for shove " + bestShove.join(", ") + ".");
+				return;
+			}
+			let blockIndex = order[next];
 
 
-	//move doesn't work:
-	if (lowShove === null) return null;
+			if (shove[blockIndex] === shove[blockIndex]) {
+				//shove already determined by deltas, cost already added, just move on:
+				shoveSearch(cost, next + 1);
+				return;
+			}
 
-	//DEBUG:
-	console.log("Final: " + lowSlide.join(" ") + " from " + lowShove.join(" "));
+			searchSteps += 1;
+
+			//limits allowable by gaps:
+			const {min, max} = getLimits(blockIndex);
+
+			if (min > max) {
+				//dead end, no valid shove
+				return;
+			}
+
+			/*//DEBUG: sanity check range
+			for (let x = min; x <= max; ++x) {
+				for (let other = 0; other < VARIABLES-1; ++other) {
+					if (other === blockIndex) continue;
+					if (shove[other] === shove[other]) {
+						console.assert(shove[other] - x <= gaps[other][blockIndex]);
+						console.assert(x - shove[other] <= gaps[blockIndex][other]);
+					}
+				}
+			}*/
+
+			function tryShove(x) {
+				let newCost = cost; // + localCost(blockIndex);
+				//shove[blockIndex] = x;
+				console.assert(deltas[blockIndex][blockIndex] === deltas[blockIndex][blockIndex]);
+
+				let limitFail = false;
+				for (let other = 0; other < VARIABLES-1; ++other) {
+					if (deltas[blockIndex][other] === deltas[blockIndex][other]) {
+						console.assert(!(shove[other] === shove[other]));
+
+						shove[other] = x + deltas[blockIndex][other];
+						let {min:oMin, max:oMax} = getLimits(other);
+						if (shove[other] < oMin || shove[other] > oMax) {
+							limitFail = true;
+							break;
+						}
+
+						newCost += localCost(other);
+					}
+				}
+
+				if (!limitFail) {
+					shoveSearch(newCost, next + 1);
+				}
+
+				for (let other = 0; other < VARIABLES-1; ++other) {
+					if (deltas[blockIndex][other] === deltas[blockIndex][other]) {
+						shove[other] = NaN;
+					}
+				}
+				shove[blockIndex] = NaN;
+			}
+
+			let short = Math.min(Math.abs(min), Math.abs(max));
+			if (min <= 0 && 0 <= max) short = 0;
+			let long = Math.max(Math.abs(min), Math.abs(max));
+
+			for (let x = short; x <= long; ++x) {
+				if (min <= x && x <= max) tryShove(x);
+				if (x !== 0 && min <= -x && -x <= max) tryShove(-x);
+			}
+		}
+		shoveSearch(initialCost, 0);
+		if (bestShove === null) {
+			console.log("Failed to find a valid shove in " + searchSteps + " steps."); //DEBUG
+			return null;
+		}
+	}
+
+
+
+
+
+
+	//.... figure out lowest cost shove ...
 
 
 	//move *does* work(!):
 	let after = cloneBoard(board);
 	for (let b = 0; b < after.blocks.length; ++b) {
-		after.blocks[b].x += lowShove[b];
+		after.blocks[b].x += bestShove[b];
 	}
 	for (let player of after.players) {
 		if (player.ded) continue;
 		let on = get(player.x, player.y+1);
 		if (on < after.blocks.length) {
-			player.x += lowShove[on];
+			player.x += bestShove[on];
 		}
 		delete player.moveIndex;
 	}
@@ -2218,6 +2417,10 @@ function setup() {
 					delete player.moveIndex;
 				}
 				activePlayer = -1;
+				//auto-move if all players have moveIndex:
+				if (board.players.every((p) => p.ded || ('moveIndex' in p))) {
+					execute();
+				}
 			} else {
 				//if a player is on tile, select the player:
 				for (let i = 0; i < board.players.length; ++i) {
