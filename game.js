@@ -51,6 +51,8 @@ const SPRITES = {
 	disable:{x:117, y:66, w:25, h:9, ax:0, ay:0},
 	highlight:{x:116, y:75, w:27, h:11, ax:1, ay:1},
 	help:{x:119, y:100, w:155, h:8, ax:78, ay:8},
+	message:{x:119, y:112, w:91, h:5, ax:45, ay:5},
+	win:{x:117, y:129, w:159, h:70, ax:79, ay:36},
 /*
 	title:{x:1, y:1, width:120, height:90},
 	end:{x:74, y:94, width:120, height:90},
@@ -323,8 +325,10 @@ let pendingAnim = [];
 
 let picture = null;
 let isEnd = false;
+let isTitle = false;
 
 let undoStack = [];
+let recordedMoves = [];
 
 function makeBoard(map,layers,library) {
 	let size = {x:map[0].length, y:map.length};
@@ -474,10 +478,18 @@ function reset() {
 			pendingAnim = [];
 		}
 	}
+	recordedMoves = [];
 }
 
 const LEVELS = [
-	/*{title:"friction test",
+	/*{title:"fall test",
+	board:[
+		"   1    ",
+		"  ggg   ",
+		"  #  g2 ",
+		"########"
+	]},
+	{title:"friction test",
 	board:[
 		"        ",
 		"   gg2  ",
@@ -500,6 +512,19 @@ const LEVELS = [
 		" 1gg  2ggg 1gg   gg  rr ",
 		"########################"
 	]},*/
+	{title:"title",
+	play:[[11,8,1],[4,2,0],[8,8,10],[17,15,9],[11,9,8],[10,9,0],[0,17,8]],
+	isTitle:true,
+	board:[
+		"                ",
+		"  ggg           ",
+		"  r  rg   rr    ",
+		"  rr1rg    r2r# ",
+		"   bbbb  bbbbr  ",
+		"     g      gr  ",
+		"3    g      gg  ",
+		"################"
+	]},
 	{title:"you can push blocks",
 	board:[
 		"        ",
@@ -568,6 +593,20 @@ const LEVELS = [
 		" # rr2G  ",
 		" ####### "
 	]},
+	{title:"stairway",
+	board:[
+		"  3         1   ",
+		"  r  r   b  b   ",
+		" rr rr  bb bb###",
+		"######  #####  #",
+		"     #  #     b#",
+		"              ##",
+		"                ",
+		"                ",
+		"                ",
+		"      2         ",
+		"################",
+	]},
 	{title:"stack thinking",
 	board:[
 		"     ",
@@ -576,7 +615,31 @@ const LEVELS = [
 		"1gbr ",
 		"#####"
 	]},
-
+	{title:"tchow",
+	board:[
+		"                ",
+		"                ",
+		"  1  r          ",
+		" ggg r 2      # ",
+		"   bbbbgrr   r  ",
+		"   r g g r g r  ",
+		" 3 rrg bbbbggr  ",
+		"################"
+	]},
+	{title:"title-yourself",
+	board:[
+		"                ",
+		"  ggg           ",
+		"  r  rg   rr    ",
+		"  rr1rg    r2r# ",
+		"   bbbb  bbbbr  ",
+		"     g      gr  ",
+		"3    g      gg  ",
+		"################"
+	]},
+	{title:"win",
+		picture:SPRITES.win
+	},
 /*
 	{title:"test chains / stacks",
 	board:[
@@ -635,7 +698,7 @@ let maxSize = {x:1, y:1};
 
 LEVELS.forEach(function(level){
 	if (level.picture) return;
-	console.log(level.title);
+	//console.log(level.title);
 	level.board = makeBoard(level.board);
 	maxSize.x = Math.max(maxSize.x, level.board.size.x);
 	maxSize.y = Math.max(maxSize.y, level.board.size.y);
@@ -648,6 +711,7 @@ function setBoard(newBoard) {
 	activePlayer = -1;
 	undoStack = [];
 	pendingAnim = [];
+	recordedMoves = [];
 }
 
 let maxLevel = 0;
@@ -659,14 +723,31 @@ function setLevel(idx) {
 	}
 	currentLevel = idx;
 	maxLevel = Math.max(maxLevel, currentLevel);
+	pendingAnim = [];
 	if (LEVELS[currentLevel].picture) {
 		picture = LEVELS[currentLevel].picture;
 		board = null;
-		pendingAnim = [];
 		isEnd = (LEVELS[currentLevel].isEnd ? true : false);
+		isTitle = false;
 	} else {
 		picture = null;
 		setBoard(LEVELS[currentLevel].board);
+		if ('play' in LEVELS[currentLevel]) {
+			for (let moves of LEVELS[currentLevel].play) {
+				for (let p = 0; p < board.players.length; ++p) {
+					if (moves[p] !== -1) {
+						board.players[p].moveIndex = moves[p];
+					}
+				}
+				const anim = [];
+				const after = tryMoves(board, anim);
+				if (after) {
+					pendingAnim.push(...anim);
+					board = after;
+				}
+			}
+		}
+		isTitle = (LEVELS[currentLevel].isTitle ? true : false);
 		isEnd = false;
 	}
 }
@@ -690,12 +771,14 @@ function next() {
 	}
 }
 
+let drawOffset = {x:0, y:0};
+
 function drawSprite(x,y,sprite) {
 	ctx.save();
 	if (sprite.flipX) {
-		ctx.setTransform(-1,0, 0,1, sprite.w+x-(sprite.w-sprite.ax)+board.offset.x,y-sprite.ay+board.offset.y);
+		ctx.setTransform(-1,0, 0,1, sprite.w+x-(sprite.w-sprite.ax)+drawOffset.x,y-sprite.ay+drawOffset.y);
 	} else {
-		ctx.setTransform(1,0, 0,1, x-sprite.ax+board.offset.x,y-sprite.ay+board.offset.y);
+		ctx.setTransform(1,0, 0,1, x-sprite.ax+drawOffset.x,y-sprite.ay+drawOffset.y);
 	}
 	ctx.drawImage(TILES_IMG, sprite.x, sprite.y, sprite.w, sprite.h, 0, 0, sprite.w, sprite.h);
 	ctx.restore();
@@ -704,9 +787,9 @@ function drawSprite(x,y,sprite) {
 function drawTile(x,y,tile) {
 	ctx.save();
 	if (tile.flipX) {
-		ctx.setTransform(-1,0, 0,1, x+TILE_SIZE+board.offset.x, y+board.offset.y);
+		ctx.setTransform(-1,0, 0,1, x+TILE_SIZE+drawOffset.x, y+drawOffset.y);
 	} else {
-		ctx.setTransform(1,0, 0,1, x+board.offset.x, y+board.offset.y);
+		ctx.setTransform(1,0, 0,1, x+drawOffset.x, y+drawOffset.y);
 	}
 	ctx.drawImage(TILES_IMG, tile.x,tile.y, TILE_SIZE,TILE_SIZE, 0, 0,TILE_SIZE,TILE_SIZE);
 	ctx.restore();
@@ -879,7 +962,7 @@ function draw() {
 	ctx.fillRect(0,0, ctx.width,ctx.height);
 
 	if (board) {
-		board.offset = {
+		drawOffset = board.offset = {
 			x:Math.floor((ctx.width - board.size.x*TILE_SIZE)/2),
 			y:Math.floor((ctx.height - board.size.y*TILE_SIZE)/2)
 		};
@@ -888,6 +971,11 @@ function draw() {
 			mouse.tx = Math.floor((mouse.x - board.offset.x) / TILE_SIZE);
 			mouse.ty = Math.floor((mouse.y - board.offset.y) / TILE_SIZE);
 		}
+	} else {
+		drawOffset = {
+			x:Math.floor(ctx.width/2),
+			y:Math.floor(ctx.height/2)
+		};
 	}
 
 	delete SPRITES.reset.at;
@@ -896,7 +984,23 @@ function draw() {
 	delete SPRITES.next.at;
 
 	if (picture) {
-		drawSprite(0,Math.floor((ctx.height-picture.height)/2), picture);
+		drawSprite(0,0, picture);
+	} else if (isTitle) {
+		if (pendingAnim.length) {
+			const anim = pendingAnim[0].compute();
+			anim.offset = board.offset;
+			drawBoard(anim, true);
+		} else {
+			drawBoard(board, true);
+		}
+		drawSprite(Math.round(0.5 * TILE_SIZE * board.size.x), -2, SPRITES.message);
+
+		SPRITES.next.at = {x:board.offset.x + Math.round(0.5 * TILE_SIZE * board.size.x - 0.5 * SPRITES.next.w), y:board.offset.y + TILE_SIZE * board.size.y + 2};
+
+		drawSprite(SPRITES.next.at.x-board.offset.x, SPRITES.next.at.y-board.offset.y, SPRITES.next);
+		if (mouse.overNext) {
+			drawSprite(SPRITES.next.at.x-board.offset.x, SPRITES.next.at.y-board.offset.y, SPRITES.highlight);
+		}
 	} else {
 		if (pendingAnim.length) {
 			const anim = pendingAnim[0].compute();
@@ -1203,7 +1307,8 @@ function tryCollapse(board, animAcc) {
 		if (!player.ded) {
 			let fall = 0;
 			let on = get(player.x, player.y+1);
-			while (on >= 0 && on < matched.length && matched[on]) {
+			while (on === -1 || (on >= 0 && on < matched.length && matched[on])) {
+			//while (on >= 0 && on < matched.length && matched[on]) {
 				player.y += 1;
 				fall += 1;
 				on = get(player.x, player.y+1);
@@ -1669,6 +1774,48 @@ function computeSupport(board, do_DEBUG) {
 		console.log("Contacts (before lifted):\n" + str);
 	}
 
+	//support relationship:
+	let supports = []; //supports[a][b] will be what a supports
+	for (let a = 0; a < VARIABLES; ++a) {
+		let row = [];
+		for (let b = 0; b < VARIABLES; ++b) {
+			if (contacts[b][a]) row.push(b);
+		}
+		supports.push(row);
+	}
+	//add player pushes to supports:
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if (!('moveIndex' in player)) continue;
+		const move = MOVES[player.moveIndex];
+		if (!('shoveA' in move)) continue;
+		const below = get(player.x, player.y+1);
+		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
+		if (beside !== VARIABLES-1) {
+			supports[below].push(beside);
+		}
+	}
+
+	//check if a block supports itself:
+	function supportsSelf(b) {
+		let visited = [];
+		for (let i = 0; i < VARIABLES; ++i) {
+			visited[i] = false;
+		}
+		let todo = [b];
+		visited[b] = true;
+		while (todo.length) {
+			let i = todo.pop();
+			for (let n of supports[i]) {
+				if (n === b) return true;
+				if (!visited[n]) {
+					visited[n] = true;
+					todo.push(n);
+				}
+			}
+		}
+		return false;
+	}
 
 	//lifted is everything that is slightly lifted because of pushes:
 	let lifted = [];
@@ -1685,16 +1832,22 @@ function computeSupport(board, do_DEBUG) {
 			}
 		}
 	}
+
+	//add player pushes to supports:
 	for (let player of board.players) {
 		if (player.ded) continue;
 		if (!('moveIndex' in player)) continue;
 		const move = MOVES[player.moveIndex];
 		if (!('shoveA' in move)) continue;
+		const below = get(player.x, player.y+1);
 		const beside = get(player.x+move.shoveA.x, player.y+move.shoveA.y);
 		if (beside !== VARIABLES-1) {
-			setLifted(beside);
+			if (!supportsSelf(beside)) {
+				setLifted(beside);
+			}
 		}
 	}
+
 
 	if (do_DEBUG) {
 		console.log(lifted);
@@ -1702,6 +1855,7 @@ function computeSupport(board, do_DEBUG) {
 
 	//edit contacts to account for lifted:
 	for (let a = 0; a < VARIABLES; ++a) {
+		let over = 0;
 		for (let b = 0; b < VARIABLES; ++b) {
 			if (lifted[a] && !lifted[b]) {
 				contacts[a][b] = 0;
@@ -1862,6 +2016,8 @@ function tryShoves(board, animAcc) {
 	//   ^^ this is an enumerative process, but so it goes.
 	//      enumeration can prefer movements that are more static.
 
+	const do_DEBUG = false;
+
 	const VARIABLES = blocks.length + 1;
 
 	let {
@@ -1869,12 +2025,13 @@ function tryShoves(board, animAcc) {
 		gaps,
 		contacts,
 		forces
-	} = computeSupport(board, true);
+	} = computeSupport(board, do_DEBUG);
 
 	console.assert(ids.length === board.size.y * board.size.x);
 	console.assert(gaps.length === VARIABLES && gaps[0].length === VARIABLES);
 	console.assert(contacts.length === VARIABLES && contacts[0].length === VARIABLES);
 	console.assert(forces.length === board.blocks.length);
+
 
 	function get(x,y) {
 		if (x < 0 || x >= board.size.x || y < 0 || y >= board.size.y) return VARIABLES-1;
@@ -1951,7 +2108,7 @@ function tryShoves(board, animAcc) {
 		}
 	}
 
-	{ //DEBUG: print deltas
+	if (do_DEBUG) { //DEBUG: print deltas
 		let colWidths = [];
 		for (let b = 0; b < VARIABLES; ++b) {
 			colWidths.push(deltas[0][b].toString().length);
@@ -1971,7 +2128,7 @@ function tryShoves(board, animAcc) {
 		console.log("Deltas:\n" + str);
 	}
 
-	{ //DEBUG: print gaps
+	if (do_DEBUG) { //DEBUG: print gaps
 		let colWidths = [];
 		for (let b = 0; b < VARIABLES; ++b) {
 			colWidths.push(gaps[0][b].toString().length);
@@ -2106,7 +2263,7 @@ function tryShoves(board, animAcc) {
 				console.assert(cost < bestCost);
 				bestCost = cost;
 				bestShove = shove.slice();
-				console.log("After " + searchSteps + " steps, have cost " + bestCost + " for shove " + bestShove.join(", ") + ".");
+				if (do_DEBUG) console.log("After " + searchSteps + " steps, have cost " + bestCost + " for shove " + bestShove.join(", ") + ".");
 				return;
 			}
 			let blockIndex = order[next];
@@ -2296,6 +2453,15 @@ function execute() {
 	const anim = [];
 	const after = tryMoves(board, anim);
 	if (after) {
+		let moves = [];
+		for (let player of board.players) {
+			if ('moveIndex' in player) {
+				moves.push(player.moveIndex);
+			} else {
+				moves.push(-1);
+			}
+		}
+		recordedMoves.push(moves);
 		undoStack.push(board);
 		board = after;
 		pendingAnim = anim;
@@ -2308,7 +2474,7 @@ function execute() {
 
 
 function isWon() {
-	return currentLevel + 1 < LEVELS.length && (board === null || (board.blocks.length === 0 && pendingAnim.length === 0) );
+	return currentLevel + 1 < LEVELS.length && (board === null || (board.blocks.length === 0 && pendingAnim.length === 0) || isTitle);
 }
 
 function getCloseMove(player, target) {
@@ -2405,7 +2571,7 @@ function setup() {
 			execute();
 		} else if (mouse.overNext) {
 			next();
-		} else if (picture) {
+		} else if (picture || isTitle) {
 			return;
 		} else if (mouse.tx >= 0 && mouse.tx < board.size.x && mouse.ty >= 0 && mouse.ty < board.size.y) {
 			if (activePlayer >= 0 && activePlayer < board.players.length) {
