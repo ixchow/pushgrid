@@ -65,14 +65,27 @@ const TILES = {
 	//1 2
 	//4 8
 	blockRed:[], blockGreen:[], blockBlue:[], blockShine:[],
-	platform:{x:0, y:45},
-	background:{x:0, y:36},
+	platform:{x:0, y:54},
+	background:{x:9, y:54},
 	//player animations:
 	playerGreenStand:[{x:0, y:0}],
-	playerGreenWalk:[{x:9, y:0}, {x:9, y:9}],
-	playerGreenJump:[{x:18, y:0}],
-	playerPurpleStand:[{x:0, y:27}],
-	playerOrangeStand:[{x:9, y:27}],
+	playerGreenWalkRight:[{x:9, y:0}, {x:9, y:9}],
+	playerGreenJumpRight:[{x:18, y:0}],
+	playerGreenLandRight:[{x:18, y:9}],
+	playerGreenShoveRight:[{x:27, y:0}],
+
+	playerPurpleStand:[{x:0, y:18}],
+	playerPurpleWalkRight:[{x:9, y:18}, {x:9, y:27}],
+	playerPurpleJumpRight:[{x:18, y:18}],
+	playerPurpleLandRight:[{x:18, y:27}],
+	playerPurpleShoveRight:[{x:27, y:18}],
+
+	playerOrangeStand:[{x:0, y:36}],
+	playerOrangeWalkRight:[{x:9, y:36}, {x:9, y:45}],
+	playerOrangeJumpRight:[{x:18, y:36}],
+	playerOrangeLandRight:[{x:18, y:45}],
+	playerOrangeShoveRight:[{x:27, y:36}],
+
 	playerGreenTarget:{x:54, y:27},
 	playerPurpleTarget:{x:54, y:36},
 	playerOrangeTarget:{x:54, y:45},
@@ -82,8 +95,8 @@ const TILES = {
 	playerGreenLTarget:{x:63, y:27, flipX:true},
 	playerPurpleLTarget:{x:63, y:36, flipX:true},
 	playerOrangeLTarget:{x:63, y:45, flipX:true},
-	dedBg:{x:18,y:27},
-	dedFg:{x:18,y:36},
+	dedBg:{x:18,y:54},
+	dedFg:{x:18,y:63},
 	/*
 	//wall sides/tops indexed by adjacent walls:
 	//.2.
@@ -107,6 +120,22 @@ const TILES = {
 	poison:{x:50, y:30},
 	*/
 };
+
+for (let name in TILES) {
+	if (name.match(/Right$/)) {
+		let newName = name.replace(/Right$/, "Left");
+		if (!(newName in TILES)) {
+			TILES[newName] = [];
+			for (let frame of TILES[name]) {
+				let newFrame = {
+					x:frame.x, y:frame.y
+				};
+				if (!frame.flipX) newFrame.flipX = true;
+				TILES[newName].push(newFrame);
+			}
+		}
+	}
+}
 
 (function fill_TILES() {
 	const blockMap = [
@@ -145,78 +174,132 @@ const TILES = {
 //'.' => anything
 //'#' => must be block/wall
 const MOVES = [
-	[ SPRITES.arrowR1,
-		"o*",
-		".#"
-	],
-	[ SPRITES.arrowR2,
-		"o *",
-		"..#"
-	],
-	[ SPRITES.arrowR1U1,
-		" *",
-		"o#"
-	],
-	[ SPRITES.arrowR1U2,
-		" *",
-		" #",
-		"o."
-	],
-	[ SPRITES.arrowR1D1,
-		"o ",
-		".*",
-		".#"
-	],
-	[ SPRITES.arrowR1D2,
-		"o ",
-		". ",
-		".*",
-		".#"
-	],
-	[ SPRITES.arrowR2U1,
-		"  *",
-		"o #"
-	],
-	[ SPRITES.arrowR2D1,
-		"o  ",
-		". *",
-		"..#"
-	],
-	[ SPRITES.arrowSR1,
-		"o>",
-		"x."
-	]
+	{
+		sprite:SPRITES.arrowR1,
+		anim:["WalkRight", 1],
+		pattern:[
+			"o*",
+			".#"
+		],
+	},
+	{
+		sprite:SPRITES.arrowR2,
+		anim:["JumpRight", 0.8, "LandRight", 0.2],
+		pattern:[
+			"o *",
+			". #"
+		],
+	},
+	{
+		sprite:SPRITES.arrowR2,
+		anim:["WalkRight", 1, "WalkRight", 1],
+		pattern:[
+			"o *",
+			"..#"
+		],
+	},
+	{
+		sprite:SPRITES.arrowR1U1,
+		//anim:["JumpRight", 0.45, "LandRight", 0.05],
+		anim:["JumpRight", 0.5],
+		pattern:[
+			" *",
+			"o#"
+		],
+	},
+	{
+		sprite:SPRITES.arrowR1U2,
+		//anim:["JumpRight", 0.9, "LandRight", 0.1],
+		anim:["JumpRight", 1.0],
+		pattern:[
+			" *",
+			" #",
+			"o."
+		],
+	},
+	{
+		sprite:SPRITES.arrowR1D1,
+		anim:["JumpRight", 0.4, "LandRight", 0.1],
+		pattern:[
+			"o ",
+			".*",
+			".#"
+		],
+	},
+	{
+		sprite:SPRITES.arrowR1D2,
+		anim:["JumpRight", 0.6, "LandRight", 0.1],
+		pattern:[
+			"o ",
+			". ",
+			".*",
+			".#"
+		],
+	},
+	{
+		sprite:SPRITES.arrowR2U1,
+		anim:["JumpRight", 1],
+		pattern:[
+			"  *",
+			"o #"
+		],
+	},
+	{
+		sprite:SPRITES.arrowR2D1,
+		anim:["JumpRight", 0.8, "LandRight", 0.2],
+		pattern:[
+			"o  ",
+			". *",
+			"..#"
+		],
+	},
+	{
+		sprite:SPRITES.arrowSR1,
+		anim:["ShoveRight", 0.5],
+		pattern:[
+			"o>",
+			"x."
+		],
+	}
 ];
 
 (function fill_MOVES() {
 	let count = MOVES.length;
 	for (let i = 0; i < count; ++i) {
-		let mirrored = [];
-		for (let row of MOVES[i]) {
-			if (typeof(row) === 'string') {
-				let rev = "";
-				for (let ci = 0; ci < row.length; ++ci) {
-					let c = row[ci];
-					if (c === '>') c = '<';
-					else if (c === '<') c = '>';
-					rev = c + rev;
-				}
-				mirrored.push(rev);
-				//mirrored.push(row.split("").reverse().join(""));
-			} else {
-				mirrored.push({
-					x:row.x, y:row.y, w:row.w, h:row.h,
-					ax:row.ax+9, ay:row.ay, flipX:true
-				});
+		let source = MOVES[i];
+		let mirrored = {};
+		if ('anim' in MOVES[i]) {
+			mirrored.anim = MOVES[i].anim.slice();
+			for (let i = 0; i < mirrored.anim.length; i += 2) {
+				mirrored.anim[i] = mirrored.anim[i]
+					.replace("Right", "Xeft")
+					.replace("Left", "Right")
+					.replace("Xeft", "Left");
 			}
+		}
+		mirrored.sprite = {
+			x:source.sprite.x, y:source.sprite.y, w:source.sprite.w, h:source.sprite.h,
+			ax:source.sprite.ax+9, ay:source.sprite.ay, flipX:true
+		};
+		mirrored.pattern = [];
+		for (let row of MOVES[i].pattern) {
+			let rev = "";
+			for (let ci = 0; ci < row.length; ++ci) {
+				let c = row[ci];
+				if (c === '>') c = '<';
+				else if (c === '<') c = '>';
+				rev = c + rev;
+			}
+			mirrored.pattern.push(rev);
 		}
 		MOVES.push(mirrored);
 	}
 
 	//convert moves from strings to little check functions:
 	for (let i = 0; i < MOVES.length; ++i) {
-		const move = MOVES[i];
-		let sprite = move.shift();
+		const sprite = MOVES[i].sprite;
+		const pattern = MOVES[i].pattern;
+		const anim = MOVES[i].anim;
 		let start = null;
 		let finish = null;
 		let empty = [];
@@ -225,9 +308,9 @@ const MOVES = [
 		let shoveB = null;
 		let shoveDelta = 0;
 
-		for (let y = 0; y < move.length; ++y) {
-			for (let x = 0; x < move[y].length; ++x) {
-				const c = move[y][x];
+		for (let y = 0; y < pattern.length; ++y) {
+			for (let x = 0; x < pattern[y].length; ++x) {
+				const c = pattern[y][x];
 				if (c === '.') {
 					//don't-care
 				} else if (c === ' ') {
@@ -275,9 +358,12 @@ const MOVES = [
 			dy:finish.y-start.y,
 			empty:empty,
 			solid:solid,
-			pattern:move,
-			sprite:sprite
+			pattern:pattern,
+			sprite:sprite,
 		};
+		if (typeof(anim) !== 'undefined') {
+			MOVES[i].anim = anim;
+		}
 		if (shoveA !== null) {
 			MOVES[i].shoveA = {x:shoveA.x-start.x, y:shoveA.y-start.y};
 			MOVES[i].shoveB = {x:shoveB.x-start.x, y:shoveB.y-start.y};
@@ -482,13 +568,16 @@ function reset() {
 }
 
 const LEVELS = [
-	/*{title:"fall test",
+	/*
+	{title:"fall test",
 	board:[
 		"   1    ",
 		"  ggg   ",
 		"  #  g2 ",
 		"########"
 	]},
+	*/
+	/*
 	{title:"friction test",
 	board:[
 		"        ",
@@ -513,7 +602,8 @@ const LEVELS = [
 		"########################"
 	]},*/
 	{title:"title",
-	play:[[11,8,1],[4,2,0],[8,8,10],[17,15,9],[11,9,8],[10,9,0],[0,17,8]],
+	//play:[[11,8,1],[4,2,0],[8,8,10],[17,15,9],[11,9,8],[10,9,0],[0,17,8]],
+	play:[[13,9,2],[5,3,0],[9,9,12],[19,17,10],[13,10,9],[12,10,0],[0,19,9]],
 	isTitle:true,
 	board:[
 		"                ",
@@ -814,6 +904,16 @@ function drawBoard(board, isAnim) {
 	for (let player of board.players) {
 		if (player.ded) {
 			drawTile(player.x*TILE_SIZE, player.y*TILE_SIZE, TILES.dedBg);
+		}
+	}
+
+
+
+	//draw players:
+	for (let player of board.players) {
+		if (player.ded) continue;
+		if ('frame' in player) {
+			drawTile(player.x*TILE_SIZE, player.y*TILE_SIZE, TILES["player" + player.color + player.frame][player.frameIndex]);
 		} else {
 			drawTile(player.x*TILE_SIZE, player.y*TILE_SIZE, TILES["player" + player.color + "Stand"][0]);
 		}
@@ -1108,11 +1208,26 @@ function update(elapsed) {
 	}
 }
 
-function makeTween(from_, to_, time) {
+function makeTween(from_, to_, time, playerAnims_) {
 	const from = cloneBoard(from_);
 	const to = cloneBoard(to_);
 	console.assert(from.players.length === to.players.length);
 	console.assert(from.blocks.length === to.blocks.length);
+
+	if (typeof(playerAnims_) === 'undefined') {
+		playerAnims_ = [];
+		for (let i = 0; i < from.players.length; ++i) playerAnims_.push(null);
+	}
+	const playerAnims = playerAnims_.slice();
+	console.assert(playerAnims.length === from.players.length);
+	console.assert(Array.isArray(playerAnims));
+	for (let anim of playerAnims) {
+		if (anim !== null) {
+			console.assert(Array.isArray(anim));
+			console.assert(anim.length % 2 === 0);
+		}
+	}
+
 	let current = 0.0;
 	return {
 		advance:(elapsed) => {
@@ -1129,9 +1244,59 @@ function makeTween(from_, to_, time) {
 			const amt = current / time;
 			const ret = cloneBoard(from);
 
+			function tweenTo(a,b,amt) {
+				let dx = b.x - a.x;
+				let dy = b.y - a.y;
+				if (dx === 0 && dy === 0) return;
+
+				if (Math.abs(dx) >= Math.abs(dy)) {
+					let rx = Math.round(amt * dx * TILE_SIZE) / TILE_SIZE;
+					let ramt = Math.max(0, Math.min(1, rx / dx));
+					let ry = Math.round(ramt * dy * TILE_SIZE) / TILE_SIZE;
+					a.x += rx;
+					a.y += ry;
+				} else {
+					let ry = Math.round(amt * dy * TILE_SIZE) / TILE_SIZE;
+					let ramt = Math.max(0, Math.min(1, ry / dy));
+					let rx = Math.round(ramt * dx * TILE_SIZE) / TILE_SIZE;
+					a.x += rx;
+					a.y += ry;
+				}
+			}
+
 			for (let p = 0; p < ret.players.length; ++p) {
+				tweenTo(ret.players[p], to.players[p], amt);
+				/*
 				ret.players[p].x += amt * (to.players[p].x - ret.players[p].x);
 				ret.players[p].y += amt * (to.players[p].y - ret.players[p].y);
+				*/
+				const anim = playerAnims[p];
+				if (anim !== null) {
+					console.assert(anim.length % 2 === 0);
+					let total = 0;
+					for (let i = 0; i + 1 < anim.length; i += 2) {
+						total += anim[i+1];
+					}
+					let frame = amt * total;
+					for (let i = 0; i + 1 < anim.length; i += 2) {
+						frame -= anim[i+1];
+						if (frame <= 0 || i + 2 >= anim.length) {
+							ret.players[p].frame = anim[i];
+							ret.players[p].frameIndex = 0;
+							const a = TILES["player" + ret.players[p].color + anim[i]];
+							if (typeof(a) === 'undefined') {
+								console.log("Missing '" + "player" + ret.players[p].color + anim[i] + "'");
+							} else {
+								ret.players[p].frameIndex = Math.min(
+									Math.floor((frame + anim[i+1]) / anim[i+1] * a.length),
+									a.length-1);
+							}
+							break;
+						}
+					}
+				} else {
+					delete ret.players[p].frame;
+				}
 			}
 
 			for (let b = 0; b < ret.blocks.length; ++b) {
@@ -1241,7 +1406,7 @@ function tryCollapse(board, animAcc) {
 		}
 		markDead(after);
 		if (animAcc) {
-			animAcc.push(makeTween(board, after, 0.5));
+			animAcc.push(makeTween(board, after, 0.2));
 		}
 		return tryCollapse(after, animAcc);
 	}
@@ -1292,8 +1457,10 @@ function tryCollapse(board, animAcc) {
 
 	let beforeFall = cloneBoard(after); //for animation
 
-	let playerFall = false;
+	let playerAnims = [];
+	let maxFall = 0;
 	for (let player of after.players) {
+		playerAnims.push(null);
 		//re-index relative splats of players!
 		if ('splatRel' in player) {
 			player.splatRel = newIndex[player.splatRel];
@@ -1312,16 +1479,19 @@ function tryCollapse(board, animAcc) {
 				player.y += 1;
 				fall += 1;
 				on = get(player.x, player.y+1);
-				playerFall = true;
+				maxFall = Math.max(maxFall, fall);
 			}
 			if (fall > 2) {
 				console.log("TODO: fall splat?");
 			}
+			if (fall > 0) {
+				playerAnims[playerAnims.length-1] = ["JumpRight", 0.2 * fall];
+			}
 		}
 	}
 
-	if (playerFall && animAcc) {
-		animAcc.push(makeTween(beforeFall, after, 0.5));
+	if (maxFall > 0 && animAcc) {
+		animAcc.push(makeTween(beforeFall, after, 0.2 * maxFall, playerAnims));
 	}
 
 	return tryCollapse(after, animAcc); //any further falling?
@@ -1990,8 +2160,7 @@ function tryShoves(board, animAcc) {
 	const blocks = board.blocks;
 
 	//no moves => done!
-	//DEBUG: avoid early-out
-	//if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board, animAcc);
+	if (board.players.every((p) => !('moveIndex' in p))) return tryCollapse(board, animAcc);
 
 	//NOTE: https://people.richland.edu/james/ictcm/2006/simplex.html
 	//...though does model of static friction fit this?
@@ -2346,10 +2515,6 @@ function tryShoves(board, animAcc) {
 	}
 
 
-
-
-
-
 	//.... figure out lowest cost shove ...
 
 
@@ -2369,7 +2534,7 @@ function tryShoves(board, animAcc) {
 
 	markDead(after);
 	if (animAcc) {
-		animAcc.push(makeTween(board, after, 0.5)); //TODO: tweak timing
+		animAcc.push(makeTween(board, after, 0.25)); //TODO: tweak timing
 	}
 
 	return tryCollapse(after, animAcc);
@@ -2403,9 +2568,12 @@ function tryMoves(board, animAcc) {
 
 	let after = cloneBoard(board);
 	let needAnim = false;
+	let playerAnims = [];
 
 	//first, resolve all non-shove moves:
 	for (let i = 0; i < board.players.length; ++i) {
+		playerAnims.push(null);
+
 		const player = board.players[i];
 		if (player.ded) {
 			console.assert(!('moveIndex' in player));
@@ -2425,10 +2593,11 @@ function tryMoves(board, animAcc) {
 			//block position for first phase:
 			if (mask[player.y*board.size.x+player.x] !== 0) return null;
 			mask[player.y*board.size.x+player.x] = 4;
+			playerAnims[i] = move.anim;
+			needAnim = true;
 			continue; //will resolve in second phase
 		}
 
-		needAnim = true; //TODO: maybe need to change pose for pushing players
 
 		//reserve ending position:
 		if (mask[(move.dy+player.y)*board.size.x+(move.dx+player.x)] !== 0) return null;
@@ -2439,11 +2608,12 @@ function tryMoves(board, animAcc) {
 		after.players[i].y = player.y + move.dy;
 		delete after.players[i].moveIndex;
 
-		//TODO: pull animation out of move(?)
+		playerAnims[i] = move.anim;
+		needAnim = true;
 	}
 
 	if (needAnim) {
-		animAcc.push(makeTween(board, after, 0.5)); //TODO: tweak timing
+		animAcc.push(makeTween(board, after, 0.35, playerAnims)); //TODO: tweak timing
 	}
 
 	return tryShoves(after, animAcc);
